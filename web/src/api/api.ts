@@ -1,6 +1,4 @@
-import type { Credentials } from './client'
 import type {
-  AuthMe,
   ConfigId,
   DocumentDetail,
   DocumentRow,
@@ -10,6 +8,8 @@ import type {
   FinTable,
   Health,
   Job,
+  LibraryDocument,
+  LibraryPage,
   MetricMapRow,
   MetricsFilters,
   MetricsSummary,
@@ -28,8 +28,6 @@ import type {
 /** One method per endpoint of contract 05. The real and the mock version both implement it. */
 export interface Api {
   health(): Promise<Health>
-  /** GET /auth/me. With `creds`, checks them; without, uses the saved login. 401 when a login is needed. */
-  authMe(creds?: Credentials): Promise<AuthMe>
 
   query(req: QueryRequest, signal?: AbortSignal): Promise<QueryResponse>
   /** Calls onEvent for each SSE event. Resolves with the final QueryResponse from the done event. */
@@ -59,6 +57,10 @@ export interface Api {
   reviewTable(tableId: string, decision: ReviewDecision, comment?: string): Promise<FinTable>
   listMetricMap(pending?: boolean): Promise<MetricMapRow[]>
   approveMapping(lineLabel: string, metric: string): Promise<MetricMapRow>
+
+  listLibrary(category?: string): Promise<LibraryDocument[]>
+  /** 404 when the page is not in the library, for example while it waits for review. */
+  getLibraryPage(documentId: string, page: number): Promise<LibraryPage>
 
   listTools(): Promise<ToolInfo[]>
   tryTool(name: string, args: Record<string, unknown>): Promise<ToolTryResult>

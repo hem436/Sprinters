@@ -1,5 +1,5 @@
 import { buildUrl } from './client'
-import type { DocumentDetail, DocumentRow, ExtractionPage, Job, Money, PageDetail } from './types'
+import type { DocumentDetail, DocumentRow, ExtractionPage, Job, LibraryDocument, LibraryPage, Money, PageDetail } from './types'
 
 // The extraction service (extraction/ingestion/service.py) names some fields differently from the
 // frontend types. These functions map its real responses onto the types, so the screens stay simple.
@@ -88,5 +88,27 @@ export function toJob(j: Raw): Job {
     done: num(j.done),
     total: num(j.total),
     status: (j.status as Job['status']) ?? 'QUEUED',
+  }
+}
+
+export function toLibraryDocument(d: Raw): LibraryDocument {
+  return {
+    document_id: String(d.document_id),
+    doc_key: String(d.doc_key ?? ''),
+    title: String(d.title ?? d.document_id),
+    category: String(d.category ?? ''),
+    version: String(d.version ?? ''),
+    effective_date: String(d.effective_date ?? ''),
+    pages: num(d.pages ?? d.page_count),
+  }
+}
+
+export function toLibraryPage(p: Raw): LibraryPage {
+  return {
+    document_id: String(p.document_id),
+    title: String(p.title ?? ''),
+    version: String(p.version ?? ''),
+    page: num(p.page),
+    text: String(p.text ?? ''),
   }
 }

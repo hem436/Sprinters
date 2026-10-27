@@ -1,86 +1,39 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { api } from '../api'
-import { ApiError, loadCredentials, saveCredentials, UNAUTHORIZED_EVENT, type Credentials } from '../api/client'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { checkLogin, currentSession, endSession, loginRequired, type Credentials } from '../lib/adminAuth'
 
-// Admin pages use HTTP basic auth (contract 01 section 7). The server decides: GET /auth/me tells whether a
-// login is needed. This context only decides what the page shows; the server checks every call.
-
-type Status = 'checking' | 'open' | 'needs-login' | 'logged-in'
+// Admin login in the web app only (lib/adminAuth.ts). It decides what the page shows; the API stays open.
 
 interface AuthState {
-  status: Status
   user: string | null
-  /** True when admin pages may open: the server needs no login, or the admin is logged in. */
+  /** True when admin pages may open: no login is set up, or the admin is logged in. */
   canAdmin: boolean
-  /** True when the server asks for an admin login. */
+  /** True when an admin password is set up. */
   loginEnabled: boolean
-  /** Checks the user name and password with the server, then saves them. Throws ApiError 401 when wrong. */
-  login: (creds: Credentials) => Promise<void>
+  /** Returns false when the user name or password is wrong, or while too many wrong tries lock the form. */
+  login: (creds: Credentials) => boolean
   logout: () => void
 }
 
 const AuthContext = createContext<AuthState | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<Status>('checking')
-  const [user, setUser] = useState<string | null>(null)
+  const [user, setUser] = useState<string | null>(() => currentSession())
+  const loginEnabled = loginRequired()
 
-  useEffect(() => {
-    let alive = true
-    api
-      .authMe()
-      .then((me) => {
-        if (!alive) return
-        setUser(me.username)
-        setStatus(me.login_required ? 'logged-in' : 'open')
-      })
-      .catch((err) => {
-        if (!alive) return
-        // 401: a login is needed. Anything else (an older server without /auth/me, or the server down)
-        // means the server does not ask for one; its own errors show on each page.
-        const needsLogin = err instanceof ApiError && err.status === 401
-        if (needsLogin) saveCredentials(null)
-        setStatus(needsLogin ? 'needs-login' : 'open')
-      })
-    return () => {
-      alive = false
-    }
-  }, [])
-
-  useEffect(() => {
-    const onUnauthorized = () => {
-      setUser(null)
-      setStatus('needs-login')
-    }
-    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
-    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
-  }, [])
-
-  const login = useCallback(async (creds: Credentials) => {
-    const me = await api.authMe(creds)
-    saveCredentials(creds)
-    setUser(me.username ?? creds.username)
-    setStatus(me.login_required ? 'logged-in' : 'open')
+  const login = useCallback((creds: Credentials) => {
+    const ok = checkLogin(creds)
+    if (ok) setUser(currentSession() ?? creds.username.trim())
+    return ok
   }, [])
 
   const logout = useCallback(() => {
-    const hadLogin = loadCredentials() !== null
-    saveCredentials(null)
+    endSession()
     setUser(null)
-    // Without a server login there is nothing to end; the button only leaves the admin view.
-    setStatus((s) => (s === 'logged-in' || (hadLogin && s !== 'open') ? 'needs-login' : s))
   }, [])
 
   const value = useMemo(
-    () => ({
-      status,
-      user,
-      canAdmin: status === 'open' || status === 'logged-in',
-      loginEnabled: status === 'needs-login' || status === 'logged-in',
-      login,
-      logout,
-    }),
-    [status, user, login, logout],
+    () => ({ user, canAdmin: !loginEnabled || user !== null, loginEnabled, login, logout }),
+    [user, loginEnabled, login, logout],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

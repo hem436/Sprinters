@@ -1,5 +1,5 @@
 import type { Api } from '../api'
-import { ApiError, loadCredentials, saveCredentials, UNAUTHORIZED_EVENT, type Credentials } from '../client'
+import { ApiError } from '../client'
 import type {
   ConfigId,
   DrillDown,
@@ -87,29 +87,6 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
 
 function fail(status: number, code: string, message: string, fields?: { field: string; problem: string }[]): never {
   throw new ApiError(status, { code, message, fields }, newId('req_'))
-}
-
-// Mock login: user name "admin", password VITE_MOCK_ADMIN_PASSWORD (default "admin"). Empty means no login.
-const MOCK_ADMIN_USER = 'admin'
-const MOCK_ADMIN_PASSWORD = import.meta.env.VITE_MOCK_ADMIN_PASSWORD ?? 'admin'
-
-function checkLogin(creds: Credentials | null): string | null {
-  if (!MOCK_ADMIN_PASSWORD) return null
-  if (!creds || creds.username !== MOCK_ADMIN_USER || creds.password !== MOCK_ADMIN_PASSWORD) {
-    fail(401, 'UNAUTHORIZED', 'Log in as an admin to use this page.')
-  }
-  return creds.username
-}
-
-function requireAuth(): void {
-  try {
-    checkLogin(loadCredentials())
-  } catch (err) {
-    // Same as the HTTP client: a 401 clears the saved login and tells the app.
-    saveCredentials(null)
-    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
-    throw err
-  }
 }
 
 function isoOffset(d: Date): string {
@@ -472,12 +449,6 @@ function validateQuestion(question: string): void {
 }
 
 export const mockApi: Api = {
-  async authMe(creds) {
-    await wait(80)
-    const username = checkLogin(creds ?? loadCredentials())
-    return { username, login_required: !!MOCK_ADMIN_PASSWORD }
-  },
-
   async health() {
     await wait(80)
     return { status: 'ok', qdrant: true, llm: true, ocr_available: true, reranker: true, db: true }
@@ -515,7 +486,6 @@ export const mockApi: Api = {
   },
 
   async reviewQuery(queryId, comment) {
-    requireAuth()
     await wait(120)
     const rec = store.records.find((r) => r.response.query_id === queryId)
     if (!rec) fail(404, 'NOT_FOUND', `Query ${queryId} does not exist.`)
@@ -524,13 +494,11 @@ export const mockApi: Api = {
   },
 
   async metricsSummary(f) {
-    requireAuth()
     await wait(200)
     return summary(f)
   },
 
   async listQueries(f) {
-    requireAuth()
     await wait(150)
     const page = f.page ?? 1
     const pageSize = 20
@@ -539,7 +507,6 @@ export const mockApi: Api = {
   },
 
   async getQuery(queryId) {
-    requireAuth()
     await wait(150)
     const rec = store.records.find((r) => r.response.query_id === queryId)
     if (!rec) fail(404, 'NOT_FOUND', `Query ${queryId} does not exist.`)
@@ -547,7 +514,6 @@ export const mockApi: Api = {
   },
 
   async startEvalRun(configId) {
-    requireAuth()
     await wait(120)
     if (store.evalRuns.some((r) => r.status === 'RUNNING')) fail(409, 'RUN_IN_PROGRESS', 'An evaluation run is still in progress.')
     const run = {
@@ -564,14 +530,12 @@ export const mockApi: Api = {
   },
 
   async listEvalRuns() {
-    requireAuth()
     await wait(100)
     store.tickRuns()
     return store.evalRuns.map(({ startedMs: _s, results: _r, ...r }) => ({ ...r })).reverse()
   },
 
   async getEvalRun(runId) {
-    requireAuth()
     await wait(100)
     store.tickRuns()
     const run = store.evalRuns.find((r) => r.run_id === runId)
@@ -581,7 +545,6 @@ export const mockApi: Api = {
   },
 
   async uploadDocument(file, meta) {
-    requireAuth()
     await wait(300)
     const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
     if (!ALLOWED_EXT.includes(ext)) fail(422, 'UNSUPPORTED_TYPE', `.${ext} files are not supported.`, [{ field: 'file', problem: 'type' }])
@@ -624,7 +587,6 @@ export const mockApi: Api = {
   },
 
   async listDocuments(f) {
-    requireAuth()
     await wait(120)
     store.tickJobs()
     return store.documents
@@ -633,7 +595,6 @@ export const mockApi: Api = {
   },
 
   async getDocument(id) {
-    requireAuth()
     await wait(120)
     store.tickJobs()
     const { pageList, duration_ms, ...row } = store.doc(id)
@@ -651,7 +612,6 @@ export const mockApi: Api = {
   },
 
   async getPage(id, n) {
-    requireAuth()
     await wait(100)
     const p = store.doc(id).pageList.find((x) => x.page === n)
     if (!p) fail(404, 'NOT_FOUND', `Page ${n} was not extracted in mock data.`)
@@ -664,7 +624,6 @@ export const mockApi: Api = {
   },
 
   async reviewPage(id, n, decision) {
-    requireAuth()
     await wait(150)
     const doc = store.doc(id)
     const p = doc.pageList.find((x) => x.page === n)
@@ -676,35 +635,30 @@ export const mockApi: Api = {
   },
 
   async reindexDocument(id) {
-    requireAuth()
     await wait(120)
     const doc = store.doc(id)
     store.jobs.unshift({ job_id: newId('job_').toLowerCase(), document_id: id, title: doc.title, stage: 'validate', done: 0, total: doc.pages, status: 'QUEUED', startedAt: Date.now() })
   },
 
   async deleteDocument(id) {
-    requireAuth()
     await wait(120)
     store.doc(id)
     store.documents = store.documents.filter((d) => d.document_id !== id)
   },
 
   async listJobs() {
-    requireAuth()
     await wait(100)
     store.tickJobs()
     return store.jobs.map(({ startedAt: _s, ...j }) => ({ ...j }))
   },
 
   async listTables(id) {
-    requireAuth()
     await wait(120)
     store.doc(id)
     return clone(store.tables.filter((t) => t.document_id === id))
   },
 
   async reviewTable(tableId, decision) {
-    requireAuth()
     await wait(150)
     const t = store.tables.find((x) => x.table_id === tableId)
     if (!t) fail(404, 'NOT_FOUND', `Table ${tableId} does not exist.`)
@@ -714,31 +668,47 @@ export const mockApi: Api = {
   },
 
   async listMetricMap(pending) {
-    requireAuth()
     await wait(100)
     return clone(store.metricMap.filter((m) => !pending || m.approved_by === null))
   },
 
   async approveMapping(lineLabel, metric) {
-    requireAuth()
     await wait(120)
     if (!STANDARD_METRICS.includes(metric)) fail(422, 'UNKNOWN_METRIC', `${metric} is not a standard metric.`, [{ field: 'metric', problem: 'unknown' }])
     const row = store.metricMap.find((m) => m.line_label === lineLabel)
     if (!row) fail(404, 'NOT_FOUND', `No mapping for "${lineLabel}".`)
     row.metric = metric
-    row.approved_by = loadCredentials()?.username ?? 'admin'
+    row.approved_by = 'admin'
     row.approved_on = new Date().toISOString().slice(0, 10)
     return { ...row }
   },
 
+  async listLibrary(category) {
+    await wait(120)
+    store.tickJobs()
+    return store.documents
+      .filter((d) => (d.status === 'INDEXED' || d.status === 'PARTIAL_REVIEW') && (!category || d.category === category))
+      .map((d) => ({ document_id: d.document_id, doc_key: d.doc_key, title: d.title, category: d.category, version: d.version, effective_date: d.effective_date, pages: d.pages }))
+  },
+
+  async getLibraryPage(id, n) {
+    await wait(100)
+    const d = store.documents.find((x) => x.document_id === id)
+    const p = d?.pageList.find((x) => x.page === n)
+    const searchable = d && (d.status === 'INDEXED' || d.status === 'PARTIAL_REVIEW') && n >= 1 && n <= d.pages
+    if (!d || !searchable || (p && p.status !== 'INDEXED' && p.status !== 'APPROVED')) {
+      fail(404, 'NOT_FOUND', `Page ${n} of ${id} is not in the library.`)
+    }
+    // The seed has text only for the pages the scenarios cite; other pages get a short stand-in.
+    return { document_id: id, title: d.title, version: d.version, page: n, text: p?.text ?? `Page ${n} of ${d.title} v${d.version}.` }
+  },
+
   async listTools() {
-    requireAuth()
     await wait(100)
     return clone(store.tools)
   },
 
   async tryTool(name, args) {
-    requireAuth()
     const started = Date.now()
     await wait(250)
     const tool = store.tools.find((t) => t.name === name)

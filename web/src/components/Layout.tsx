@@ -6,7 +6,10 @@ import { ThemeToggle } from './ThemeToggle'
 
 // Two simple views, like Verba: employees see the chat; admins and reviewers see the dashboard first.
 
-const USER_NAV = [{ to: '/chat', label: 'Chat' }]
+const USER_NAV = [
+  { to: '/chat', label: 'Chat' },
+  { to: '/documents', label: 'Documents' },
+]
 
 const ADMIN_NAV = [
   { to: '/dashboard', label: 'Dashboard', match: ['/dashboard', '/queries'] },
@@ -50,51 +53,60 @@ export function Layout() {
             Mock data
           </span>
         ) : null}
+        {admin ? <HealthBadge /> : null}
 
-        <nav aria-label={admin ? 'Admin' : 'Main'} className="ml-auto flex flex-wrap items-center gap-1.5">
-          {admin
-            ? ADMIN_NAV.map((n) => (
-                <NavLink key={n.to} to={n.to} className={() => pill(n.match.some((m) => pathname.startsWith(m)))}>
-                  {n.label}
-                </NavLink>
-              ))
-            : USER_NAV.map((n) => (
-                <NavLink key={n.to} to={n.to} className={({ isActive }) => pill(isActive)}>
-                  {n.label}
-                </NavLink>
-              ))}
-          {admin ? (
-            <NavLink to="/chat" className={ghost}>
-              Back to chat
-            </NavLink>
-          ) : (
-            <NavLink to={canAdmin ? '/dashboard' : '/login'} className={ghost}>
-              Admin
-            </NavLink>
-          )}
-          <ThemeToggle />
-        </nav>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+          <nav aria-label={admin ? 'Admin' : 'Main'} className="flex flex-wrap items-center gap-1.5">
+            {admin
+              ? ADMIN_NAV.map((n) => (
+                  <NavLink key={n.to} to={n.to} className={() => pill(n.match.some((m) => pathname.startsWith(m)))}>
+                    {n.label}
+                  </NavLink>
+                ))
+              : USER_NAV.map((n) => (
+                  <NavLink key={n.to} to={n.to} className={({ isActive }) => pill(isActive)}>
+                    {n.label}
+                  </NavLink>
+                ))}
+            {admin ? (
+              <NavLink to="/chat" className={ghost}>
+                Back to chat
+              </NavLink>
+            ) : (
+              <NavLink to={canAdmin ? '/dashboard' : '/login'} className={ghost}>
+                Admin
+              </NavLink>
+            )}
+          </nav>
 
-        {admin ? (
-          <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
-            <HealthBadge />
-            {loginEnabled && user ? <span className="text-xs text-slate-500 dark:text-slate-400">{user}</span> : null}
-            <button
-              type="button"
-              onClick={() => {
-                // Without a login this leaves the admin view; with one it also clears the saved password.
-                logout()
-                navigate('/chat')
-              }}
-              className={`${ghost} gap-1.5`}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-              </svg>
-              Log out
-            </button>
+          {/* Account controls sit at the far right, apart from the page links. */}
+          <div className="flex items-center gap-2 border-l border-slate-300 pl-3 dark:border-slate-700">
+            <ThemeToggle />
+            {/* Only with a password set up: without one there is no login to end, and Back to chat is enough. */}
+            {admin && loginEnabled ? (
+              <>
+                {user ? (
+                  <span className="hidden text-sm text-slate-600 sm:inline dark:text-slate-300" title="Logged in as">
+                    {user}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout()
+                    navigate('/chat')
+                  }}
+                  className={`${ghost} gap-1.5`}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                  </svg>
+                  Log out
+                </button>
+              </>
+            ) : null}
           </div>
-        ) : null}
+        </div>
       </header>
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-8 pt-4 sm:px-6">
         <Outlet />

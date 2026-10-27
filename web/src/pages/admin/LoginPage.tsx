@@ -1,34 +1,28 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { ApiError, USE_MOCKS } from '../../api'
-import { ErrorBanner } from '../../components/ui'
 import { useAuth } from '../../hooks/useAuth'
+import { DEFAULT_PASSWORD, lockedForMs, usingDefaultPassword } from '../../lib/adminAuth'
 
 export function LoginPage() {
-  const { login, status } = useAuth()
+  const { login, canAdmin } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from ?? '/dashboard'
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<unknown>(null)
-  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // The server needs no login, or the admin is already in: go straight on.
-  if (status === 'open' || status === 'logged-in') return <Navigate to={from} replace />
+  // No login is set up, or the admin is already in: go straight on.
+  if (canAdmin) return <Navigate to={from} replace />
 
-  async function submit() {
-    setBusy(true)
-    setError(null)
-    try {
-      await login({ username: username.trim(), password })
+  function submit() {
+    if (login({ username, password })) {
       navigate(from, { replace: true })
-    } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? new Error('Wrong user name or password.') : err)
-      setPassword('')
-    } finally {
-      setBusy(false)
+      return
     }
+    setPassword('')
+    const wait = lockedForMs()
+    setError(wait > 0 ? `Too many wrong tries. Try again in ${Math.ceil(wait / 1000)} seconds.` : 'Wrong user name or password.')
   }
 
   return (
@@ -52,11 +46,19 @@ export function LoginPage() {
           <span className="label">Password</span>
           <input className="input" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
-        {error ? <ErrorBanner error={error} /> : null}
-        <button type="submit" className="btn-primary w-full" disabled={busy || !password}>
-          {busy ? 'Checking' : 'Log in'}
+        {error ? (
+          <p role="alert" className="m-0 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+            {error}
+          </p>
+        ) : null}
+        <button type="submit" className="btn-primary w-full" disabled={!password}>
+          Log in
         </button>
-        {USE_MOCKS ? <p className="text-xs text-slate-500">Mock mode: user admin, password admin (VITE_MOCK_ADMIN_PASSWORD).</p> : null}
+        {usingDefaultPassword() ? (
+          <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
+            Demo setup: the password is <code>{DEFAULT_PASSWORD}</code>. Set VITE_ADMIN_PASSWORD_SHA256 before anyone else can reach this app.
+          </p>
+        ) : null}
       </form>
     </div>
   )

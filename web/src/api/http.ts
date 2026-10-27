@@ -1,6 +1,6 @@
 import type { Api } from './api'
-import { ApiError, authHeader, buildUrl, request, toApiError } from './client'
-import { toDocumentDetail, toDocumentRow, toJob, toPageDetail } from './normalize'
+import { ApiError, buildUrl, request, toApiError } from './client'
+import { toDocumentDetail, toDocumentRow, toJob, toLibraryDocument, toLibraryPage, toPageDetail } from './normalize'
 import { createSseParser } from './sse'
 import type { QueryResponse } from './types'
 
@@ -10,14 +10,13 @@ const enc = encodeURIComponent
 
 export const httpApi: Api = {
   health: () => request('GET', '/health'),
-  authMe: (creds) => request('GET', '/auth/me', { credentials: creds }),
 
   query: (req, signal) => request('POST', '/query', { body: req, signal }),
 
   async queryStream(req, onEvent, signal) {
     const res = await fetch(buildUrl('/query/stream'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...authHeader() },
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify(req),
       signal,
     })
@@ -72,6 +71,9 @@ export const httpApi: Api = {
   reviewTable: (id, decision, comment) => request('POST', `/tables/${enc(id)}/review`, { body: { decision, comment } }),
   listMetricMap: (pending) => request('GET', '/metric-map', { query: { pending } }),
   approveMapping: (line_label, metric) => request('POST', '/metric-map/approve', { body: { line_label, metric } }),
+
+  listLibrary: async (category) => (await request<Raw[]>('GET', '/library', { query: { category } })).map(toLibraryDocument),
+  getLibraryPage: async (id, n) => toLibraryPage(await request<Raw>('GET', `/library/${enc(id)}/pages/${n}`)),
 
   listTools: () => request('GET', '/tools'),
   tryTool: (name, args) => request('POST', `/tools/${enc(name)}/try`, { body: { args } }),

@@ -1,14 +1,25 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { saveCredentials } from './api/client'
+import { createHash } from 'node:crypto'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetMockStore } from './api/mock/mockApi'
 import { App } from './App'
+import { resetLoginLimits } from './lib/adminAuth'
 import { renderWithProviders } from './test/render'
+
+const PASSWORD = 'test-pass-42'
+const withLogin = () => vi.stubEnv('VITE_ADMIN_PASSWORD_SHA256', createHash('sha256').update(PASSWORD).digest('hex'))
 
 beforeEach(() => {
   resetMockStore()
-  saveCredentials({ username: 'admin', password: 'admin' })
+  resetLoginLimits()
+  sessionStorage.clear()
+  // Most tests look at the pages, not the login; the login tests set their own password.
+  vi.stubEnv('VITE_ADMIN_PASSWORD_SHA256', 'off')
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 describe('every route renders on mock data', () => {
@@ -26,32 +37,70 @@ describe('every route renders on mock data', () => {
     expect((await screen.findAllByText(text, {}, { timeout: 3000 })).length).toBeGreaterThan(0)
   })
 
-  it('asks for the admin login, refuses a wrong password and opens with the right one', async () => {
-    saveCredentials(null)
+  it('opens admin pages directly when the login is off, with no Log out', async () => {
+    renderWithProviders(<App />, '/dashboard')
+    expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to chat' })).toBeInTheDocument()
+  })
+})
+
+describe('admin login in the web app', () => {
+  it('uses the demo password when nothing is set up', async () => {
+    vi.stubEnv('VITE_ADMIN_PASSWORD_SHA256', '')
+    renderWithProviders(<App />, '/dashboard')
+    expect(await screen.findByText('Admin login')).toBeInTheDocument()
+    expect(screen.getByText(/Demo setup/)).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Password'), 'demo')
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
+    expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
+  })
+
+  it('asks for the login, refuses a wrong password and opens with the right one', async () => {
+    withLogin()
     renderWithProviders(<App />, '/dashboard')
     expect(await screen.findByText('Admin login')).toBeInTheDocument()
     await userEvent.type(screen.getByLabelText('Password'), 'wrong')
     await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
-    expect(await screen.findByText('Wrong user name or password.')).toBeInTheDocument()
-    await userEvent.type(screen.getByLabelText('Password'), 'admin')
+    expect(screen.getByRole('alert')).toHaveTextContent('Wrong user name or password.')
+    await userEvent.type(screen.getByLabelText('Password'), PASSWORD)
     await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
     expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
-    expect(sessionStorage.getItem('ka.auth')).toContain('admin')
+    // Only a session is saved, never the password.
+    expect(sessionStorage.getItem('ka.admin')).not.toContain(PASSWORD)
   })
 
-  it('sends a wrong saved login back to the login page', async () => {
-    saveCredentials({ username: 'admin', password: 'old' })
-    renderWithProviders(<App />, '/dashboard')
-    expect(await screen.findByText('Admin login')).toBeInTheDocument()
-    expect(sessionStorage.getItem('ka.auth')).toBeNull()
+  it('locks the form for a while after 5 wrong tries', async () => {
+    withLogin()
+    renderWithProviders(<App />, '/login')
+    for (let i = 0; i < 5; i++) {
+      await userEvent.type(screen.getByLabelText('Password'), 'nope')
+      await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
+    }
+    expect(screen.getByRole('alert')).toHaveTextContent(/Too many wrong tries/)
   })
 
-  it('logs out from an admin page back to the chat and clears the saved login', async () => {
-    renderWithProviders(<App />, '/dashboard')
-    await userEvent.click(screen.getByRole('button', { name: 'Log out' }))
+  it('places Log out at the far right of the header, outside the page menu', async () => {
+    withLogin()
+    renderWithProviders(<App />, '/login')
+    await userEvent.type(screen.getByLabelText('Password'), PASSWORD)
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
+    const logout = await screen.findByRole('button', { name: 'Log out' })
+    expect(screen.getByRole('navigation', { name: 'Admin' })).not.toContainElement(logout)
+    const controls = screen.getByRole('banner').querySelectorAll('a, button')
+    expect(controls[controls.length - 1]).toBe(logout)
+  })
+
+  it('logs out back to the chat, and the admin pages ask again', async () => {
+    withLogin()
+    renderWithProviders(<App />, '/login')
+    await userEvent.type(screen.getByLabelText('Password'), PASSWORD)
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Log out' }))
     expect(await screen.findByText('Ask the knowledge base')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument()
-    expect(sessionStorage.getItem('ka.auth')).toBeNull()
+    expect(sessionStorage.getItem('ka.admin')).toBeNull()
+    await userEvent.click(screen.getByRole('link', { name: 'Admin' }))
+    expect(await screen.findByText('Admin login')).toBeInTheDocument()
   })
 })
 
