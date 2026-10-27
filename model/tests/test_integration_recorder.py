@@ -11,11 +11,13 @@ import pytest
 BACKEND = Path(__file__).resolve().parents[2] / "backend"
 if not (BACKEND / "app" / "observability" / "recorder.py").exists():
     pytest.skip("backend/ is not in this checkout", allow_module_level=True)
-sys.path.insert(0, str(BACKEND))
-pytest.importorskip("yaml")
-
-from app.observability import store                    # noqa: E402
-from app.observability.recorder import QueryRecorder   # noqa: E402
+# appended, not inserted: our own `tests` package must win over backend/tests (review #25)
+sys.path.append(str(BACKEND))
+try:
+    from app.observability import store                    # noqa: E402
+    from app.observability.recorder import QueryRecorder   # noqa: E402
+except ImportError as missing:                             # backend/ is here but its requirements are not installed
+    pytest.skip(f"backend requirements not installed ({missing.name})", allow_module_level=True)
 
 from agent.service import Agent                        # noqa: E402
 from agent.stubs import FakeLLM, StubSearch, StubTools  # noqa: E402
@@ -64,8 +66,7 @@ def test_repair_is_stored_as_an_answer_call(db, corpus, table_reranker):
     assert [c[1] for c in calls] == ["route-v1", "answer-v1", "answer-v1-repair"]
 
 
-@pytest.mark.xfail(reason="two copies of the outcome rules: backend outcome.py has no small-talk rule (see model/README.md, open items)",
-                   strict=True)
 def test_stored_outcome_equals_the_users_outcome_for_small_talk(db, corpus, table_reranker):
+    """One copy of the outcome rules (CHANGES DC-1): finish() stores the agent's own outcome."""
     response, stored, _, _ = _run(db, corpus, table_reranker, "Hello!", {})
     assert stored[:2] == (response.outcome, response.reason_code)

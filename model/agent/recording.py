@@ -47,14 +47,15 @@ def report_llm(recorder: RecorderPort, purpose: str, reply: LLMReply, prompt_ver
         estimate = EstimatedUsage(reply.tokens_in, reply.tokens_out)
     recorder.llm_call(purpose if purpose != "repair" else "answer", reply.model, usage, reply.latency_ms,
                       prompt_version if purpose != "repair" else f"{prompt_version}-repair",
-                      cache_hit=reply.cache_hit, estimate=estimate)
+                      cache_hit=reply.cache_hit, estimate=estimate, raw_output=reply.text)
 
 
-def report_tool(recorder: RecorderPort, result: ToolResult) -> None:
+def report_tool(recorder: RecorderPort, result: ToolResult) -> str | None:
+    """Returns the recorder's id for this call; citations of the tool point at it (review #25)."""
     error = None if result.status in ("OK", "EMPTY") else result.status
-    recorder.tool_call(result.tool, result.args, result.status, len(result.rows), result.latency_ms,
-                       result_summary=result.summary or result.message or None, error_category=error,
-                       version=result.version)
+    return recorder.tool_call(result.tool, result.args, result.status, len(result.rows), result.latency_ms,
+                              result_summary=result.summary or result.message or None, error_category=error,
+                              version=result.version)
 
 
 def hit_rows(hits: list[Hit], chunks: dict[str, Chunk]) -> list[dict]:
@@ -67,14 +68,20 @@ def hit_rows(hits: list[Hit], chunks: dict[str, Chunk]) -> list[dict]:
     return rows
 
 
-def citation_rows(checks: list, evidence: dict[str, Evidence]) -> list[dict]:
-    """citation rows: the cited id, the chunk or tool call it points to, valid or not, and why."""
+def citation_rows(checks: list, evidence: dict[str, Evidence], tool_call_ids: list[str]) -> list[dict]:
+    """citation rows: the cited id, the chunk or the recorded tool call it points to, valid or not, and why.
+
+    Evidence T1, T2... are the tool results in run order, so T<n> maps to the n-th id the recorder returned.
+    """
     rows = []
     for check in checks:
         e = evidence.get(check.id)
+        call_id = None
+        if e is not None and e.kind == "tool":
+            n = int(check.id[1:]) - 1
+            call_id = tool_call_ids[n] if 0 <= n < len(tool_call_ids) else None
         rows.append({"citation_id": check.id, "valid": check.valid, "reason": check.reason,
-                     "chunk_id": e.chunk.chunk_id if e and e.chunk else None,
-                     "tool_call_id": check.id if e and e.kind == "tool" else None})
+                     "chunk_id": e.chunk.chunk_id if e and e.chunk else None, "tool_call_id": call_id})
     return rows
 
 

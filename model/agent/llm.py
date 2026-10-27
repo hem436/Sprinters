@@ -3,6 +3,7 @@
 Standard library only (urllib), so the agent adds no SDK dependency. Usage numbers come from the provider's `usage`
 object (11 section 4); when it is missing, tokens are estimated and labelled ESTIMATED.
 """
+import http.client
 import json
 import os
 import time
@@ -10,6 +11,11 @@ import urllib.error
 import urllib.request
 
 from agent.types import LLMReply
+
+# Every way one call can fail: network (URLError, OSError, dropped connection), time, a body that is not the
+# expected JSON (ValueError, KeyError, IndexError, TypeError). Each sends us to the fallback model (review #25).
+CALL_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, TimeoutError,
+               ValueError, KeyError, IndexError, TypeError)
 
 
 class LLMError(RuntimeError):
@@ -31,7 +37,7 @@ class OpenAICompatibleLLM:
         for model in self.models:
             try:
                 return self._call(model, system, user, json_mode)
-            except (urllib.error.URLError, TimeoutError, ValueError, KeyError) as error:
+            except CALL_ERRORS as error:
                 errors.append(f"{model}: {_short(error)}")
         raise LLMError("; ".join(errors))
 

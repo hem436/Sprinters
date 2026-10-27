@@ -46,6 +46,8 @@ class AgentState(TypedDict, total=False):
     citation_checks: list
     grounding: float
     claim_checks: list
+    no_tool: bool
+    tool_call_ids: list[str]
     replies: Annotated[list[LLMReply], operator.add]
     safety_flags: Annotated[list[str], operator.add]
 
@@ -54,8 +56,10 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
     """Compile the graph once; the other parts come in here, the per-query values come in the state."""
 
     def guard(state: AgentState) -> dict:
-        with run_stage(state["recorder"], "guard"):
+        with run_stage(state["recorder"], "guard") as stage:
             blocked, reason = guard_question(state["question"])
+            if blocked:     # review #25: a blocked query keeps its route decision in the drill-down too
+                _detail(stage, route="BLOCKED", route_reason=f"GUARD_{reason}")
         if blocked:
             return {"blocked": True, "text": BLOCKED_TEXT, "safety_flags": [f"GUARD_{reason}"]}
         return {"blocked": False}
@@ -82,13 +86,14 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
 
     def run_tool(state: AgentState) -> dict:
         decision = state["route"]
+        if decision.tool is None:
+            # no approved tool fits: nothing runs, so nothing is recorded as a tool call (13 section 5, NO_TOOL)
+            return {"tools": [], "no_tool": True}
         with run_stage(state["recorder"], "tool"):
-            if decision.tool is None:
-                result = ToolResult(tool="none", status="NO_TOOL", message="no approved tool fits this question")
-            else:
-                result = tools.run_tool(decision.tool, decision.tool_args)
-        report_tool(state["recorder"], result)
-        return {"tools": [result]}
+            result = tools.run_tool(decision.tool, decision.tool_args)
+        # the recorder's own id for this call, so a citation of T1 points at the stored tool_call row
+        call_id = report_tool(state["recorder"], result)
+        return {"tools": [result], "tool_call_ids": [call_id]}
 
     def generate(state: AgentState) -> dict:
         with run_stage(state["recorder"], "generate", "answer"):
@@ -101,8 +106,8 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
             answer = result.get("answer") or state.get("answer")
             _detail(stage, conflicts=[{"doc_key": c.doc_key, "section": c.section,
                                        "versions": [v.version for v in c.versions]} for c in conflicts],
-                    # C1: code found differing versions but the answer did not show them; the reviewer must see it
-                    conflict_not_shown=bool(conflicts) and not (answer is not None and answer.conflict))
+                    # C1: the model answered, code found differing versions, and the answer did not show them
+                    conflict_not_shown=bool(conflicts) and answer is not None and not answer.conflict)
             return result
 
     graph = StateGraph(AgentState)
@@ -142,16 +147,16 @@ def _generate(state: AgentState, llm: LLMPort) -> dict:
     docs_ok = retrieval is not None and has_relevant_evidence(retrieval.top_score, retrieval.score_kind, cfg)
     tool_results = state.get("tools", [])
     if not docs_ok and not any(t.status in ("OK", "EMPTY") for t in tool_results):
-        return _without_evidence(tool_results)
+        return _without_evidence(tool_results, state.get("no_tool", False))
     ranked = retrieval.reranked if docs_ok else []
     evidence = build_evidence(ranked, state.get("conflicts", []), tool_results, cfg.llm_max_context_tokens)
     system, user = build_prompt(state["route"].standalone_query, state.get("context", []), evidence)
     return {"evidence": evidence, **_ask_model(state, llm, system, user)}
 
 
-def _without_evidence(tool_results: list[ToolResult]) -> dict:
+def _without_evidence(tool_results: list[ToolResult], no_tool: bool) -> dict:
     """04 G1 and 13 section 5: which fixed text to show when nothing usable was found."""
-    if any(t.status == "NO_TOOL" for t in tool_results):
+    if no_tool or any(t.status == "NO_TOOL" for t in tool_results):
         return {"text": NO_TOOL_TEXT, "fallback": True}
     if tool_results:            # the tool was needed and failed (timeout, database error, bad arguments)
         return {"text": TOOL_UNAVAILABLE_TEXT, "fallback": False}

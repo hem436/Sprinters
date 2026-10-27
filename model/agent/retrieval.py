@@ -59,9 +59,11 @@ def retrieve(query: str, filters: dict | None, cfg: AgentConfig, search: SearchP
     if cfg.config_id == "A":
         with run_stage(recorder, "retrieve_vector"):
             vector = search.vector_search(query, cfg.ret_rerank_top_n, filters)
-        chunks = _in_order(search, vector)
-        recorder.hits("vector", hit_rows(vector, {c.chunk_id: c for c in chunks}))
-        return RetrievalResult(vector, [], [], [ScoredChunk(c, h.score) for c, h in zip(chunks, vector)], "cosine")
+            known = {c.chunk_id: c for c in search.get_chunks([h.chunk_id for h in vector])}
+        recorder.hits("vector", hit_rows(vector, known))
+        # each score stays with its own chunk; a hit whose chunk is gone is dropped, not shifted (review #25)
+        scored = [ScoredChunk(known[h.chunk_id], h.score) for h in vector if h.chunk_id in known]
+        return RetrievalResult(vector, [], [], scored, "cosine")
 
     with run_stage(recorder, "retrieve_vector"):
         vector = search.vector_search(query, cfg.ret_vector_k, filters)
@@ -69,9 +71,9 @@ def retrieve(query: str, filters: dict | None, cfg: AgentConfig, search: SearchP
         bm25 = search.bm25_search(query, cfg.ret_bm25_k, filters)
     with run_stage(recorder, "fuse"):
         fused = rrf_fuse([vector, bm25], cfg.ret_rrf_k, cfg.ret_fused_k)
-    # one lookup for every candidate, so each recorded list shows its document and page (11 section 9)
-    known = {c.chunk_id: c for c in search.get_chunks(sorted({h.chunk_id for h in vector + bm25}))}
     with run_stage(recorder, "rerank"):
+        # one lookup for every candidate (inside a timed stage), so each recorded list shows its document and page
+        known = {c.chunk_id: c for c in search.get_chunks(sorted({h.chunk_id for h in vector + bm25}))}
         fused_chunks = [known[h.chunk_id] for h in fused if h.chunk_id in known]
         reranked = rerank(query, fused_chunks, cfg.ret_rerank_top_n, reranker)
     for name, hits in (("vector", vector), ("bm25", bm25), ("fused", fused)):
@@ -114,12 +116,6 @@ def _one_text_per_version(chunks: list[Chunk]) -> list[Chunk]:
                             first.effective_date, first.page, first.section, first.method, text, first.injection_suspect,
                             getattr(first, "current", None)))
     return sorted(merged, key=lambda c: c.effective_date, reverse=True)
-
-
-def _in_order(search: SearchPort, hits: list[Hit]) -> list[Chunk]:
-    """get_chunks may return in any order; keep the ranked order of the hits."""
-    by_id = {c.chunk_id: c for c in search.get_chunks([h.chunk_id for h in hits])}
-    return [by_id[h.chunk_id] for h in hits if h.chunk_id in by_id]
 
 
 class FlashRankReranker:
