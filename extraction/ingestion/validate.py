@@ -50,10 +50,30 @@ def check_metadata(meta: dict) -> dict:
             clean["effective_date"] = date.fromisoformat(clean["effective_date"]).isoformat()
         except ValueError:
             problems["effective_date"] = "must be an ISO date, e.g. 2026-04-01"
+    extra = check_report_fields(meta, problems)
     if problems:
         raise errors.invalid_metadata(problems)
     clean["doc_key"] = slug(clean["doc_key"] or clean["title"])
+    if extra:
+        clean["extra"] = extra
     return clean
+
+
+def check_report_fields(meta: dict, problems: dict[str, str]) -> dict:
+    """Optional fields for a financial report (contract 14): `company` turns on fact extraction; `report_type`
+    ANNUAL (default) or QUARTERLY; `fiscal_year` like FY2024-25 (default: the year before the effective date)."""
+    company = str(meta.get("company") or "").strip()
+    report_type = str(meta.get("report_type") or "").strip().upper()
+    fiscal_year = str(meta.get("fiscal_year") or "").strip().upper()
+    if not company:
+        if report_type or fiscal_year:
+            problems["company"] = "required when report_type or fiscal_year is given"
+        return {}
+    if report_type and report_type not in ("ANNUAL", "QUARTERLY"):
+        problems["report_type"] = "must be ANNUAL or QUARTERLY"
+    if fiscal_year and not re.fullmatch(r"FY\d{4}-\d{2}", fiscal_year):
+        problems["fiscal_year"] = "must look like FY2024-25"
+    return {"company": company, "report_type": report_type or "ANNUAL", "fiscal_year": fiscal_year or None}
 
 
 def sniff_type(path: Path, ext: str) -> str:

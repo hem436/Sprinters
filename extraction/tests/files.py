@@ -185,3 +185,74 @@ def png_photo(path: Path, rotate_exif: bool = False) -> Path:
         return path.with_suffix(".jpg")
     img.save(str(path), format="PNG")
     return path
+
+
+PL_HEADER = ["Particulars", "Note", "Year ended 31 March 2025", "Year ended 31 March 2024"]
+PL_ROWS = [
+    ["Revenue from operations", "21", "11,256.00", "10,050.00"],
+    ["Other income", "22", "244.00", "150.00"],
+    ["Total income", "", "11,500.00", "10,200.00"],
+    ["Expenses", "", "", ""],
+    ["Employee benefits expense", "23", "4,000.00", "3,600.00"],
+    ["Finance costs", "24", "150.00", "100.00"],
+    ["Depreciation and amortisation expense", "25", "350.00", "300.00"],
+    ["Total expenses", "", "4,500.00", "4,000.00"],
+    ["Profit before tax", "", "7,000.00", "6,200.00"],
+    ["Total tax expense", "", "1,750.00", "1,550.00"],
+    ["Profit for the year", "", "5,250.00", "4,650.00"],
+    ["Basic EPS (₹)", "", "45.67", "40.12"],
+]
+
+
+def fin_pdf(path: Path, title: str = "Consolidated Statement of Profit and Loss",
+            caption: str = "for the year ended 31 March 2025", unit_line: str = "(₹ in crore)",
+            header: list[str] | None = None, rows: list[list[str]] | None = None, split_at: int | None = None,
+            repeat_header: bool = True, extra_pages: int = 0) -> Path:
+    """A report page with a ruled financial table. With `split_at`, the rows from that index go on the next page
+    (with the header again when `repeat_header`)."""
+    header = header or PL_HEADER
+    rows = rows if rows is not None else PL_ROWS
+    parts = [rows] if split_at is None else [rows[:split_at], rows[split_at:]]
+    c = canvas.Canvas(str(path), pagesize=A4)
+    for n, part in enumerate(parts):
+        y = H - 72
+        if n == 0:
+            c.setFont(_FONT, 16)
+            c.drawString(60, y, title)
+            c.setFont(_FONT, 10)
+            c.drawString(60, y - 30, caption)
+            c.drawString(60, y - 46, unit_line)
+            y -= 70
+        data = ([header] if n == 0 or repeat_header else []) + part
+        t = Table(data, colWidths=[200, 40, 130, 130])
+        t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black), ("FONTSIZE", (0, 0), (-1, -1), 9),
+                               ("FONTNAME", (0, 0), (-1, -1), _FONT)]))
+        tw, th = t.wrapOn(c, W, H)
+        t.drawOn(c, 50, y - th)
+        c.showPage()
+    for _ in range(extra_pages):
+        _write_lines(c, ["Management discussion: revenue grew because of higher payment volumes."])
+        c.showPage()
+    c.save()
+    return path
+
+
+def unruled_numbers_pdf(path: Path) -> Path:
+    """A numeric page with a table drawn as plain text columns (no ruling lines): pdfplumber finds no table."""
+    c = canvas.Canvas(str(path), pagesize=A4)
+    c.setFont(_FONT, 14)
+    c.drawString(60, H - 60, "Standalone Statement of Profit and Loss")
+    c.setFont(_FONT, 10)
+    y = H - 100
+    for label, a, b in [("(₹ in crore)", "FY2024-25", "FY2023-24"), ("Revenue from operations", "9,000", "8,100"),
+                        ("Other income", "100", "90"), ("Total income", "9,100", "8,190"),
+                        ("Finance costs", "50", "45"), ("Profit before tax", "2,000", "1,800"),
+                        ("Profit for the year", "1,500", "1,350"), ("EBITDA", "2,600", "2,300"),
+                        ("Depreciation", "120", "110"), ("Tax", "500", "450")]:
+        c.drawString(60, y, label)
+        c.drawRightString(400, y, a)
+        c.drawRightString(520, y, b)
+        y -= 16
+    c.showPage()
+    c.save()
+    return path

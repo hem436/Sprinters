@@ -1,6 +1,7 @@
 """Contract 14 section 3: financial tables in `knowledge.db` and the view Sinngam's facts tools read.
 
-Values are integers in the base unit (rupees; percent in basis points), and the printed text is kept too.
+Values are integers in the base unit (rupees; percent in basis points; per-share amounts such as EPS in paise),
+and the printed text is kept too.
 """
 
 FIN_SCHEMA = """
@@ -23,6 +24,8 @@ CREATE TABLE IF NOT EXISTS fin_table (
   scale         INTEGER NOT NULL,                 -- 1, 1000, 100000, 1000000, 10000000
   unit_printed  TEXT NOT NULL DEFAULT '',
   caption       TEXT NOT NULL DEFAULT '',
+  source        TEXT NOT NULL DEFAULT 'text',     -- text (pdfplumber), ocr (page OCR), vision (table vision call)
+  rows_json     TEXT NOT NULL DEFAULT '[]',       -- the table as read, shown beside the page image on review
   checks_passed INTEGER NOT NULL DEFAULT 0,
   checks_json   TEXT NOT NULL DEFAULT '[]',       -- which F7 checks failed and why
   status        TEXT NOT NULL CHECK (status IN ('NEEDS_REVIEW','APPROVED','REJECTED')),
@@ -41,14 +44,16 @@ CREATE TABLE IF NOT EXISTS fin_fact (
   metric        TEXT NOT NULL DEFAULT '',         -- empty until mapped (F6); no tool uses an empty metric
   segment       TEXT NOT NULL DEFAULT '',
   line_label    TEXT NOT NULL,                    -- as printed
-  value_kind    TEXT NOT NULL CHECK (value_kind IN ('AMOUNT','PERCENT','COUNT')),
-  value_num     INTEGER NOT NULL,                 -- base unit
+  label_norm    TEXT NOT NULL,                    -- normalised, the key of metric_map
+  value_kind    TEXT NOT NULL CHECK (value_kind IN ('AMOUNT','PERCENT','COUNT','PER_SHARE')),
+  value_num     INTEGER NOT NULL,                 -- base unit: rupees, basis points, count, paise per share
   value_printed TEXT NOT NULL,
   page          INTEGER NOT NULL,
   row_no        INTEGER NOT NULL,
   col_no        INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_fact_lookup ON fin_fact (company, metric, period, basis);
+CREATE INDEX IF NOT EXISTS ix_fact_label ON fin_fact (label_norm);
 
 CREATE TABLE IF NOT EXISTS metric_map (
   line_label    TEXT PRIMARY KEY,                 -- normalised: lower case, single spaces

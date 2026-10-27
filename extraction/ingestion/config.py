@@ -33,6 +33,9 @@ _KEYS = {
     "ocr.attempts": "ocr_attempts",
     "ocr.price_in_per_mtok_usd": "ocr_price_in_per_mtok_usd",
     "ocr.price_out_per_mtok_usd": "ocr_price_out_per_mtok_usd",
+    "fin.review_unmapped": "fin_review_unmapped",
+    "fin.vision_tables": "fin_vision_tables",
+    "fin.mapper_model": "fin_mapper_model",
     "chunk.target_tokens": "chunk_target_tokens",
     "chunk.max_tokens": "chunk_max_tokens",
     "chunk.overlap_tokens": "chunk_overlap_tokens",
@@ -80,6 +83,11 @@ class ExtractConfig:
     # Prices for the ExtractionReport cost. None = "price not set": the cost stays empty, never 0 (contract 11 s.4).
     ocr_price_in_per_mtok_usd: Decimal | None = None
     ocr_price_out_per_mtok_usd: Decimal | None = None
+
+    # contract 14 financial facts
+    fin_review_unmapped: bool = True          # F6 / diagram: a table with an unmapped label waits for review
+    fin_vision_tables: bool = True            # F1: send numeric pages without a ruled table to the vision model
+    fin_mapper_model: str = "gemini-3.1-flash-lite"
 
     # X8 chunks (tokens are estimated as characters / 4; see chunker.py)
     chunk_target_tokens: int = 400
@@ -156,6 +164,7 @@ def load_config() -> ExtractConfig:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         # app.yaml may hold other parts' sections; keep only ours
-        ours = {k: v for k, v in data.items() if k.split(".")[0] in {"extract", "clean", "ocr", "chunk", "embed", "index"}}
+        sections = {"extract", "clean", "ocr", "chunk", "embed", "index", "fin"}
+        ours = {k: v for k, v in data.items() if k.split(".")[0] in sections}
         cfg = ExtractConfig.from_dict(ours, cfg)
     return cfg

@@ -35,3 +35,25 @@ def test_live_embedding():
     e = GeminiEmbedder(load_config())
     v = e.embed_query("per diem in Mumbai")
     assert len(v) == e.dim > 0
+
+
+def test_live_table_reader(tmp_path):
+    from ingestion.config import load_config
+    from ingestion.fin_ai import GeminiTableReader
+    from ingestion.ocr import render_pdf_page
+    from tests import files
+
+    cfg = load_config()
+    pdf = files.unruled_numbers_pdf(tmp_path / "v.pdf")
+    tables, usage = GeminiTableReader(cfg).read_tables(render_pdf_page(str(pdf), 1, cfg.ocr_max_edge_px))
+    cells = [c for t in tables for r in t.header_rows + t.rows for c in r]
+    assert "9,000" in cells and "8,190" in cells and usage.input_tokens > 0
+
+
+def test_live_label_mapper():
+    from ingestion.config import load_config
+    from ingestion.fin_ai import GeminiLabelMapper
+
+    out, _ = GeminiLabelMapper(load_config()).propose(["Total income from operations", "Staff welfare canteen"])
+    assert out.get("Total income from operations") == "revenue"
+    assert "Staff welfare canteen" not in out

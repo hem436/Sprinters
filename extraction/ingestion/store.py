@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS document (
   indexed_at     TEXT,
   stored_path    TEXT NOT NULL,          -- our copy of the file, for page images and re-index
   report_json    TEXT,                   -- the ExtractionReport (contract 10 section 8)
+  extra_json     TEXT,                   -- optional upload fields for reports: company, report_type, fiscal_year
   error          TEXT                    -- why the job failed, for the admin page
 );
 CREATE INDEX IF NOT EXISTS ix_document_key ON document (doc_key);
