@@ -80,6 +80,17 @@ describe('admin login in the web app', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/Too many wrong tries/)
   })
 
+  it('places Log out at the far right of the header, outside the page menu', async () => {
+    withLogin()
+    renderWithProviders(<App />, '/login')
+    await userEvent.type(screen.getByLabelText('Password'), PASSWORD)
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
+    const logout = await screen.findByRole('button', { name: 'Log out' })
+    expect(screen.getByRole('navigation', { name: 'Admin' })).not.toContainElement(logout)
+    const controls = screen.getByRole('banner').querySelectorAll('a, button')
+    expect(controls[controls.length - 1]).toBe(logout)
+  })
+
   it('logs out back to the chat, and the admin pages ask again', async () => {
     withLogin()
     renderWithProviders(<App />, '/login')
