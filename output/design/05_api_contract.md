@@ -23,6 +23,10 @@ Version: 1.0 · Status: DRAFT · Owner: P4 with P1, P2, P3 · Case section(s): 6
 | POST /documents/{id}/pages/{n}/review | admin | P1 | `{decision: "APPROVE"|"REJECT", comment?}` | page with new status | 409 ILLEGAL_MOVE |
 | POST /documents/{id}/reindex, DELETE /documents/{id} | admin | P1 | | 202 / 204 | 404, 409 |
 | GET /jobs | admin | P1 | | ingest jobs with progress (`stage`, `done`, `total`) | |
+| GET /documents/{id}/tables | admin | P1 | | financial tables found: statement, basis, unit, scale, pages, checks, status | 404 |
+| POST /tables/{id}/review | admin | P1 | `{decision: "APPROVE"|"REJECT", comment?}` | table with new status; approved facts become usable | 409 ILLEGAL_MOVE |
+| GET /metric-map | admin | P1 | `?pending=true` | line labels and their metric, with who proposed and approved | |
+| POST /metric-map/approve | admin | P1 | `{line_label, metric}` | the approved mapping | 422 UNKNOWN_METRIC |
 | POST /query | anyone | P2 | `{question, session_id, filters?: {category?, doc_key?, current_only?}, config_id?}` | QueryResponse below | 422 EMPTY_QUESTION, 503 LLM_UNAVAILABLE (only if even the fallback text fails) |
 | POST /query/stream | anyone | P2 | same | SSE events: status, citations, token, done (done carries the QueryResponse) | same, as an `error` event |
 | POST /feedback | anyone | P3 | `{query_id, helpful, comment?}` | 201 | 404, 409 FEEDBACK_EXISTS |
@@ -32,6 +36,8 @@ Version: 1.0 · Status: DRAFT · Owner: P4 with P1, P2, P3 · Case section(s): 6
 | GET /queries/{id} | admin, reviewer | P3 | | drill-down object (contract 11 section 9) | 404 |
 | POST /eval/runs | reviewer | P3 | `{config_id: "A"|"B", case_ids?}` | 202 `{run_id}` | 409 RUN_IN_PROGRESS |
 | GET /eval/runs, GET /eval/runs/{id} | reviewer | P3 | | run summary and per-case results | 404 |
+| GET /tools | admin | P2 | | approved tools: name, version, source, description, argument schema, approval, success rate | |
+| POST /tools/{name}/try | admin | P2 | `{args}` | the tool's rows, summary and provenance (read-only) | 404, 422 ARGS_INVALID, 504 TIMEOUT |
 | GET /health | anyone | P2 | | `{status, qdrant, llm, ocr_available, reranker, db}` | |
 
 ## JSON examples

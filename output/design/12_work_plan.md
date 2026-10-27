@@ -46,17 +46,19 @@ Dep. = must exist first; "stub" means it can start at once against the contract 
 | WP1.6 | X9 Qdrant payload + BM25 index + `vector_search` / `bm25_search` with filters | WP1.5 (stub chunks fine) | `test_bm25_keeps_ids_whole`; P2 can import both functions | I2 |
 | WP1.7 | Extraction gold set (typed by hand) + `extraction_eval.py` → `output/extraction_quality.csv` | WP-0, then WP1.2/1.3 | CSV with CER, numeric recall, table accuracy for every gold page | I1 typing, I3 run |
 | WP1.8 | Ingest the full demo corpus; ExtractionReport per document | WP1.1 to WP1.6 | all demo documents INDEXED or PARTIAL_REVIEW; report JSON saved | I2 end |
+| WP1.9 | Financial facts (contract 14): F1 to F8, `fin_fact`, metric map, totals check, table review | WP1.2, WP1.3 | `test_parse_brackets_negative`, `test_totals_check_flags_review`, `test_newest_report_wins_and_restated` | I2 to I3 |
 
 ### P2 Retrieval and agent (contracts 04, 06)
 
 | WP | What | Dep. | Done when | Iter. |
 |---|---|---|---|---|
-| WP2.1 | `make_business_data.py` (seeded, from the facts sheet) + 4 approved SQL tools + Pydantic args + read-only connection | WP-0 | `test_tool_args_validated`; P-104 total equals the facts sheet | I1 |
+| WP2.1 | `make_business_data.py` (seeded, from the facts sheet) + the 6 approved tools of contract 13 (registry, Pydantic args, read-only connection, summaries) + `GET /tools` | WP-0 | `test_tool_args_validated`; P-104 total equals the facts sheet | I1 |
 | WP2.2 | H3 RRF fusion + H4 rerank, config A and B switch | stub `Hit` lists | `test_exact_id_bm25_wins` with stub lists | I1 |
 | WP2.3 | R1 planner JSON + rule override + M1 window and follow-up rewrite | none | `test_route_sql_with_args`, `test_route_both`, `test_followup_rewrite` | I1 |
 | WP2.4 | A1 to A4 answer prompt with evidence tags, JSON answer; V1 to V3 validators; G1 fallback; C1 conflict | stub evidence | `test_conflict_shows_both`, `test_no_evidence_fallback`, `test_injection_ignored` | I2 |
 | WP2.5 | LangGraph wiring guard → plan → retrieve / tool → generate → validate; `/query`, `/query/stream`; QueryRecorder calls | WP2.1 to 2.4, WP1.6, WP3.1 | end-to-end question on the real index returns the contract 05 QueryResponse | I2 end |
 | WP2.6 | Docker Compose: api, web, local qdrant; `/health` | none | `docker compose up` gives a green `/health` on the workstation | I1 (with the repo owner) |
+| WP2.7 | Facts tools `metric_value`, `metric_compare`, `metric_trend`, `segment_breakdown` + route R1b | stub `fin_fact` rows | `test_growth_in_sql`, `test_standalone_not_in_consolidated` | I2 |
 
 ### P3 Observability and evaluation (contracts 11, 07)
 

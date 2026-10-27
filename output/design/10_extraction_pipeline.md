@@ -90,7 +90,7 @@ text report with scanned annexures loses the annexures. Per-page routing fixes t
 
 ## 6. X4 Text and table extraction (text-layer pages)
 
-1. **Tables first.** pdfplumber `find_tables()` on the page. Each table becomes a Markdown table. The text line
+1. **Tables first.** pdfplumber `find_tables()` on the page. Each table becomes a Markdown table, and a financial table also becomes normalised rows in `fin_fact` (contract 14; complex tables go to the vision model as JSON). The text line
    just above the table (the caption) and any unit line ("₹ in crore", "in millions", "%") are stored with it as
    `caption` and `unit`.
 2. **Text outside the tables.** Extract text from the page with the table areas removed

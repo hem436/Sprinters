@@ -116,6 +116,7 @@ they cost tokens and the existing setup is limited by Groq's rate limits.
 | Tool failure (runner sets `tools.simulate_failure`) | 2 | TOOL_ERROR_HANDLED |
 | Regression question | 3 (taken from the others) | same as source |
 | Handwritten / scanned source | 2 | ANSWER with an OCR page cited |
+| Financial tables (contract 14) | 4: two-report comparison, restated figure, crore against million, metric not in the reports | ANSWER route SQL; FALLBACK for the missing metric |
 
 **Measures per run** (`evals/run_eval.py --config A|B`, writes `eval_run` and `eval_result` and the CSVs in contract 07):
 
