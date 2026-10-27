@@ -36,7 +36,7 @@ cp .env.example .env        # optional
 npm run dev                 # http://localhost:5173, mock data
 ```
 
-Admin pages open without a login until you set one up (see Admin login below).
+Admin pages ask for a login: user `admin`, password `demo` by default (see Admin login below).
 
 Against the real API:
 
@@ -51,13 +51,16 @@ The dev server sends `/api/*` to `API_PROXY_TARGET` and removes the `/api` prefi
 The admin pages (Dashboard, Documents, Evaluation, Settings) can ask for a user name and password. The check
 runs in the web app only (`src/lib/adminAuth.ts`); the team keeps the back end open.
 
+By default the login is user `admin`, password `demo`. That default is public, so replace it before anyone
+else can reach the app:
+
 1. Make the hash of the password: `printf '%s' 'your-password' | sha256sum`
 2. Put it in `web/.env` as `VITE_ADMIN_PASSWORD_SHA256=<hash>`. Set `VITE_ADMIN_USERNAME` if it is not `admin`.
 3. Restart `npm run dev`, or pass both values as `--build-arg` to `docker build`.
 
 How it behaves:
 
-- An empty hash means no login.
+- An empty hash means the demo default. `VITE_ADMIN_PASSWORD_SHA256=off` turns the login off.
 - Only the hash is in the built app. The password is never stored, in the build or in the browser.
 - A login lasts 8 hours in that browser tab. A new password ends old sessions.
 - After 5 wrong tries the form locks for 30 seconds.

@@ -3,10 +3,12 @@ import { sha256Hex } from './sha256'
 // Admin login checked in the web app only (the team keeps the back end open, issue #48).
 // This hides the admin pages; it does not protect the API, which anyone can still call directly.
 //
-// VITE_ADMIN_USERNAME   user name, default "admin"
-// VITE_ADMIN_PASSWORD_SHA256   hex SHA-256 of the password; empty means no login
+// VITE_ADMIN_USERNAME          user name, default "admin"
+// VITE_ADMIN_PASSWORD_SHA256   hex SHA-256 of the password. Not set or empty: the demo default below.
+//                              "off": no login at all.
 //
-// Only the hash is in the built app. The password itself is never stored, in the build or in the browser.
+// With a hash set, only the hash is in the built app; the password is never stored, in the build or in the
+// browser. The demo default is public on purpose; set a real hash before anyone else can reach the app.
 
 export interface Credentials {
   username: string
@@ -25,6 +27,10 @@ const SESSION_MS = 8 * 60 * 60 * 1000
 const MAX_FAILURES = 5
 const LOCK_MS = 30 * 1000
 
+/** Default for the demo, so a fresh setup asks for a login. Everyone with the repository knows it. */
+export const DEFAULT_PASSWORD = 'demo'
+const DEFAULT_HASH = sha256Hex(DEFAULT_PASSWORD)
+
 let failures = 0
 let lockedUntil = 0
 
@@ -32,8 +38,18 @@ let lockedUntil = 0
 function settings(): { username: string; hash: string } {
   return {
     username: (import.meta.env.VITE_ADMIN_USERNAME ?? '').trim() || 'admin',
-    hash: (import.meta.env.VITE_ADMIN_PASSWORD_SHA256 ?? '').trim().toLowerCase(),
+    hash: passwordHash((import.meta.env.VITE_ADMIN_PASSWORD_SHA256 ?? '').trim().toLowerCase()),
   }
+}
+
+function passwordHash(setting: string): string {
+  if (setting === 'off') return ''
+  return setting || DEFAULT_HASH
+}
+
+/** True while the demo default password is in use; the login page then says so. */
+export function usingDefaultPassword(): boolean {
+  return settings().hash === DEFAULT_HASH
 }
 
 export function loginRequired(): boolean {

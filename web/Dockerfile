@@ -6,7 +6,7 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 ARG VITE_USE_MOCKS=false
 ARG VITE_API_BASE=/api
-# Admin login (see README): the user name and the SHA-256 hash of the password, never the password itself.
+# Admin login (see README): the user name and the SHA-256 hash of the password. Empty: demo default; off: none.
 ARG VITE_ADMIN_USERNAME=admin
 ARG VITE_ADMIN_PASSWORD_SHA256=
 ENV VITE_USE_MOCKS=$VITE_USE_MOCKS VITE_API_BASE=$VITE_API_BASE \

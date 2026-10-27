@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import { lockedForMs } from '../../lib/adminAuth'
+import { DEFAULT_PASSWORD, lockedForMs, usingDefaultPassword } from '../../lib/adminAuth'
 
 export function LoginPage() {
   const { login, canAdmin } = useAuth()
@@ -54,6 +54,11 @@ export function LoginPage() {
         <button type="submit" className="btn-primary w-full" disabled={!password}>
           Log in
         </button>
+        {usingDefaultPassword() ? (
+          <p className="m-0 text-xs text-slate-500 dark:text-slate-400">
+            Demo setup: the password is <code>{DEFAULT_PASSWORD}</code>. Set VITE_ADMIN_PASSWORD_SHA256 before anyone else can reach this app.
+          </p>
+        ) : null}
       </form>
     </div>
   )

@@ -14,6 +14,8 @@ beforeEach(() => {
   resetMockStore()
   resetLoginLimits()
   sessionStorage.clear()
+  // Most tests look at the pages, not the login; the login tests set their own password.
+  vi.stubEnv('VITE_ADMIN_PASSWORD_SHA256', 'off')
 })
 
 afterEach(() => {
@@ -35,7 +37,7 @@ describe('every route renders on mock data', () => {
     expect((await screen.findAllByText(text, {}, { timeout: 3000 })).length).toBeGreaterThan(0)
   })
 
-  it('opens admin pages directly when no admin password is set up, with no Log out', async () => {
+  it('opens admin pages directly when the login is off, with no Log out', async () => {
     renderWithProviders(<App />, '/dashboard')
     expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument()
@@ -44,6 +46,16 @@ describe('every route renders on mock data', () => {
 })
 
 describe('admin login in the web app', () => {
+  it('uses the demo password when nothing is set up', async () => {
+    vi.stubEnv('VITE_ADMIN_PASSWORD_SHA256', '')
+    renderWithProviders(<App />, '/dashboard')
+    expect(await screen.findByText('Admin login')).toBeInTheDocument()
+    expect(screen.getByText(/Demo setup/)).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Password'), 'demo')
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
+    expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
+  })
+
   it('asks for the login, refuses a wrong password and opens with the right one', async () => {
     withLogin()
     renderWithProviders(<App />, '/dashboard')

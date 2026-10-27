@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { checkLogin, currentSession, endSession, loginRequired, resetLoginLimits } from './adminAuth'
+import { checkLogin, currentSession, endSession, loginRequired, resetLoginLimits, usingDefaultPassword } from './adminAuth'
 import { sha256Hex } from './sha256'
 
 const hash = (s: string) => createHash('sha256').update(s).digest('hex')
@@ -20,9 +20,18 @@ describe('adminAuth', () => {
     vi.unstubAllEnvs()
   })
 
-  it('needs no login when no hash is set', () => {
+  it('uses the demo password when no hash is set, and no login with "off"', () => {
+    expect(loginRequired()).toBe(true)
+    expect(usingDefaultPassword()).toBe(true)
+    expect(checkLogin({ username: 'admin', password: 'demo' })).toBe(true)
+    vi.stubEnv('VITE_ADMIN_PASSWORD_SHA256', 'off')
     expect(loginRequired()).toBe(false)
-    expect(checkLogin({ username: 'admin', password: '' })).toBe(false)
+  })
+
+  it('a real hash replaces the demo password', () => {
+    vi.stubEnv('VITE_ADMIN_PASSWORD_SHA256', hash('long-real-password'))
+    expect(usingDefaultPassword()).toBe(false)
+    expect(checkLogin({ username: 'admin', password: 'demo' })).toBe(false)
   })
 
   it('accepts only the right user name and password, and saves no password', () => {
