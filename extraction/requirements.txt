@@ -1,0 +1,20 @@
+# Extraction and indexing (P1, Myank). Versions tested on 27 Oct 2026 with Python 3.12; Sinngam pins the full list in WP-BE8.
+pypdf==6.21.2
+pdfplumber==0.11.10
+pypdfium2==5.14.0
+pillow==13.0.0
+python-docx==1.2.0
+google-genai==2.33.0
+qdrant-client==1.20.0
+rank-bm25==0.2.2
+pydantic==2.14.1
+python-dotenv==1.2.4
+PyYAML==6.0.3
+
+# tests and lint
+pytest==9.1.1
+reportlab==5.1.0          # builds the test PDFs in tests/pdfs.py
+ruff==0.17.3
+
+# optional: local embedding fallback (large: pulls torch)
+# sentence-transformers
