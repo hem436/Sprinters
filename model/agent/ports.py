@@ -5,7 +5,7 @@ Owners (contract 01 section 3): search is Myank's, tools and the recorder are Si
 from contextlib import AbstractContextManager
 from typing import Protocol
 
-from agent.types import Chunk, Hit, LLMReply, ToolResult
+from agent.types import Chunk, Hit, LLMReply, QueryResponse, ToolResult
 
 
 class SearchPort(Protocol):
@@ -43,6 +43,8 @@ class LLMPort(Protocol):
 class RecorderPort(Protocol):
     """Sinngam: 11 section 3. The agent reports; the recorder stores. It must never raise into the answer path."""
 
+    query_id: str          # assigned by the recorder when the query starts (11 section 3)
+
     def stage(self, name: str) -> AbstractContextManager: ...
 
     def hits(self, list_name: str, hits: list[Hit]) -> None: ...
@@ -50,3 +52,12 @@ class RecorderPort(Protocol):
     def llm_call(self, purpose: str, reply: LLMReply, prompt_version: str) -> None: ...
 
     def tool_call(self, result: ToolResult) -> None: ...
+
+    def citations(self, checks: list) -> None:
+        """V1 results: each cited id, valid or not, and why."""
+        ...
+
+    def finish(self, response: QueryResponse, details: dict) -> None:
+        """Called once at the end. details: route reason, normalized query, context turns, grounding detail,
+        safety flags, outcome facts. The recorder writes everything in one transaction."""
+        ...

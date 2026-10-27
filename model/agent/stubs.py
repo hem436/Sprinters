@@ -3,6 +3,7 @@
 Used by the tests and for early demos, until Myank's search, Sinngam's tools and recorder, and a real model are wired in.
 """
 import json
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
@@ -68,6 +69,9 @@ class NullRecorder:
     """Accepts every report and stores it in memory, so tests can look at what the agent recorded."""
 
     def __init__(self):
+        self.query_id = uuid.uuid4().hex[:12]
+        self.citation_checks: list = []
+        self.finished: tuple | None = None
         self.stages: list[str] = []
         self.hit_lists: dict[str, list[Hit]] = {}
         self.llm_calls: list[tuple[str, LLMReply, str]] = []
@@ -86,3 +90,9 @@ class NullRecorder:
 
     def tool_call(self, result: ToolResult) -> None:
         self.tool_calls.append(result)
+
+    def citations(self, checks: list) -> None:
+        self.citation_checks = checks
+
+    def finish(self, response, details: dict) -> None:
+        self.finished = (response, details)
