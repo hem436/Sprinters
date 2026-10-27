@@ -4,10 +4,13 @@ from agent.stubs import FakeLLM, StubTools
 from agent.types import Turn
 
 
-def _route(question: str, planner_reply, context=None):
-    llm = FakeLLM({"route": [planner_reply]})
+def _route(question: str, planner_reply, context=None, second_reply=None):
+    llm = FakeLLM({"route": [planner_reply] + ([second_reply] if second_reply is not None else [])})
     decision, _ = route_question(question, context or [], llm, StubTools())
     return decision, llm
+
+
+DOCS_NO_TOOL = {"route": "DOCS", "standalone_query": "q", "tool": None, "tool_args": {}}
 
 
 def test_route_sql_with_args():
@@ -31,10 +34,37 @@ def test_doc_question_with_project_id():
     assert decision.route == "BOTH" and decision.reason == "RULE_OVERRIDE"
 
 
-def test_rule_forces_data_when_planner_says_docs():
-    decision, _ = _route("Compare Company A revenue FY2024 and FY2025",
-                         {"route": "DOCS", "standalone_query": "q", "tool": None, "tool_args": {}})
-    assert decision.route == "SQL" and decision.reason == "RULE_OVERRIDE"
+def test_override_asks_the_planner_again_for_the_tool():
+    """Bug report: an override changed the route but kept the planner's tool, which is null for DOCS."""
+    args = {"metric": "revenue", "company": "Company A", "periods": ["FY2023-24", "FY2024-25"]}
+    decision, llm = _route("Compare Company A revenue FY2024 and FY2025", DOCS_NO_TOOL,
+                           second_reply={"route": "SQL", "standalone_query": "q", "tool": "metric_compare", "tool_args": args})
+    assert (decision.route, decision.tool, decision.tool_args, decision.reason) == ("SQL", "metric_compare", args, "RULE_OVERRIDE")
+    assert len(llm.calls) == 2 and "needs business data" in llm.calls[1][2]
+
+
+def test_reported_policy_question_stays_docs():
+    """"budget" alone is no longer a data word, so a pure policy question is not forced to BOTH."""
+    decision, llm = _route("What does the travel policy say about budget overruns?", DOCS_NO_TOOL)
+    assert (decision.route, decision.reason, len(llm.calls)) == ("DOCS", "PLANNER", 1)
+
+
+def test_reported_both_without_a_tool_drops_to_docs():
+    """"average" + "why" force BOTH, but no tool fits approval time: answer from documents, not a failed tool."""
+    decision, llm = _route("Why is the average approval time long?", DOCS_NO_TOOL, second_reply=DOCS_NO_TOOL)
+    assert (decision.route, decision.tool, decision.reason, len(llm.calls)) == ("DOCS", None, "ROUTE_NO_TOOL", 2)
+
+
+def test_reported_sql_without_a_tool_stays_sql():
+    """SQL with no tool keeps its route, so the user hears "cannot answer this from the approved data" (NO_TOOL)."""
+    decision, _ = _route("Compare Company A revenue FY2024 and FY2025", DOCS_NO_TOOL, second_reply=DOCS_NO_TOOL)
+    assert (decision.route, decision.tool, decision.reason) == ("SQL", None, "RULE_OVERRIDE")
+
+
+def test_planner_both_without_a_tool_drops_to_docs():
+    decision, llm = _route("Is P-104 over its budget, and what does the policy require?",
+                           {"route": "BOTH", "standalone_query": "q", "tool": None, "tool_args": {}})
+    assert (decision.route, decision.reason, len(llm.calls)) == ("DOCS", "ROUTE_NO_TOOL", 1)
 
 
 def test_route_fallback_on_bad_json():

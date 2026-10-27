@@ -2,7 +2,10 @@
 
 All translation from agent objects to recorder calls lives here, so graph.py and service.py stay about the rules.
 """
+from contextlib import contextmanager
 from dataclasses import dataclass
+
+from langgraph.config import get_stream_writer
 
 from agent.ports import RecorderPort
 from agent.types import Chunk, Evidence, Hit, LLMReply, ToolResult
@@ -73,3 +76,36 @@ def citation_rows(checks: list, evidence: dict[str, Evidence]) -> list[dict]:
                      "chunk_id": e.chunk.chunk_id if e and e.chunk else None,
                      "tool_call_id": check.id if e and e.kind == "tool" else None})
     return rows
+
+
+# 05 /query/stream status events: the stage names the web app shows (issue #48), with a label for the user.
+STAGE_LABELS = {
+    "guard": "Checking the question",
+    "context": "Reading the conversation",
+    "route": "Choosing documents or data",
+    "retrieve_vector": "Searching by meaning",
+    "retrieve_bm25": "Searching for exact words",
+    "fuse": "Merging the results",
+    "rerank": "Ranking the passages",
+    "tool": "Querying the business data",
+    "answer": "Writing the answer",
+    "validate": "Checking citations and numbers",
+}
+
+
+def emit_status(*stages: str) -> None:
+    """Announce a stage to a streaming caller. Inside invoke() the writer does nothing; outside a graph there is none."""
+    try:
+        write = get_stream_writer()
+    except RuntimeError:
+        return
+    for name in stages:
+        write({"stage": name, "label": STAGE_LABELS[name]})
+
+
+@contextmanager
+def run_stage(recorder: RecorderPort, name: str, *stream_names: str):
+    """One stage: announced on the stream (Hemant's names) and timed by the recorder (contract 11 names)."""
+    emit_status(*(stream_names or (name,)))
+    with recorder.stage(name) as handle:
+        yield handle
