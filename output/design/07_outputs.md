@@ -1,8 +1,8 @@
-<!-- Contract 07. Owner: P3. Status: DRAFT until the design review, then FROZEN v1.0.
+<!-- Contract 07. Owner: Arka (P2), Myank for extraction quality. Status: DRAFT until the design review, then FROZEN v1.0.
      After freezing, change only through the design-change skill: an entry in CHANGES.md and a version bump. -->
 # 07 Output files
 
-Version: 1.0 · Status: DRAFT · Owner: P3 (P1 for extraction quality) · Case section(s): 9, 10, 12
+Version: 1.0 · Status: DRAFT · Owner: Arka (evaluation outputs), Myank (extraction quality) · Case section(s): 9, 10, 12
 
 All files are written by scripts, never by hand, and are committed at the end of the day.
 
@@ -52,6 +52,16 @@ latency p50, latency p95, tokens per query, cost per query.
 | 7 | table_cell_accuracy | 3 decimals, empty if no table |
 | 8 | quality_score, needs_review | from X6 / X7 |
 | 9 | ocr_tokens_in, ocr_tokens_out, ocr_cost_usd | |
+
+### Repository deliverables (case section 12)
+
+| File | What | Owner |
+|---|---|---|
+| `requirements.txt` (pinned) and `web/package.json` | dependency manifest | Sinngam (Python), Hemant (web) |
+| `.env.example`, `config/app.yaml` | configuration sample: every config key of contracts 04, 10, 11, 13, 14 with its default; no secrets | Sinngam |
+| `README.md` | run steps (Docker and local), architecture diagram, where each contract lives, failed attempts | all, joined by Hemant |
+| `demo/documents/`, `scripts/make_business_data.py` | demonstration package: the synthetic documents and structured data | Myank (documents), Sinngam (data) |
+| `demo/script.md`, `scripts/run_demo.py` | scripted scenarios: the 10 demo questions in order, each with its expected route, citation and outcome; the script runs them against the API and prints pass or fail | Arka |
 
 ### output/evaluation_report.md
 

@@ -2,7 +2,7 @@
      After freezing, change only through the design-change skill: an entry in CHANGES.md and a version bump. -->
 # 05 API contract
 
-Version: 1.0 · Status: DRAFT · Owner: P4 with P1, P2, P3 · Case section(s): 6 (Service layer), 12
+Version: 1.0 · Status: DRAFT · Owner: Sinngam (endpoints) with Hemant (screens); the Part column names whose logic runs inside (P1 Myank, P2 Arka, P3 Sinngam) · Case section(s): 6 (Service layer), 12
 
 ## Conventions
 
@@ -34,11 +34,11 @@ Version: 1.0 · Status: DRAFT · Owner: P4 with P1, P2, P3 · Case section(s): 6
 | GET /metrics/summary | admin, reviewer | P3 | `?from&to&config_id&route&outcome` | KPI object (contract 11 section 9) | |
 | GET /queries | admin, reviewer | P3 | same filters + `page`, `outcome` | list rows: id, ts, question_masked, route, outcome, reason, latency, cost, feedback | |
 | GET /queries/{id} | admin, reviewer | P3 | | drill-down object (contract 11 section 9) | 404 |
-| POST /eval/runs | reviewer | P3 | `{config_id: "A"|"B", case_ids?}` | 202 `{run_id}` | 409 RUN_IN_PROGRESS |
-| GET /eval/runs, GET /eval/runs/{id} | reviewer | P3 | | run summary and per-case results | 404 |
-| GET /tools | admin | P2 | | approved tools: name, version, source, description, argument schema, approval, success rate | |
-| POST /tools/{name}/try | admin | P2 | `{args}` | the tool's rows, summary and provenance (read-only) | 404, 422 ARGS_INVALID, 504 TIMEOUT |
-| GET /health | anyone | P2 | | `{status, qdrant, llm, ocr_available, reranker, db}` | |
+| POST /eval/runs | reviewer | P2 | `{config_id: "A"|"B", case_ids?}` | 202 `{run_id}` | 409 RUN_IN_PROGRESS |
+| GET /eval/runs, GET /eval/runs/{id} | reviewer | P2 | | run summary and per-case results | 404 |
+| GET /tools | admin | P3 | | approved tools: name, version, source, description, argument schema, approval, success rate | |
+| POST /tools/{name}/try | admin | P3 | `{args}` | the tool's rows, summary and provenance (read-only) | 404, 422 ARGS_INVALID, 504 TIMEOUT |
+| GET /health | anyone | P3 | | `{status, qdrant, llm, ocr_available, reranker, db}` | |
 
 ## JSON examples
 

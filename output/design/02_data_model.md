@@ -1,8 +1,8 @@
-<!-- Contract 02. Owner: P1 (documents), P2 (business data), P3 (events). Status: DRAFT until the design review, then FROZEN v1.0.
+<!-- Contract 02. Owners: Myank (P1) documents and financial tables, Sinngam (P3) business data and events. Status: DRAFT until the design review, then FROZEN v1.0.
      After freezing, change only through the design-change skill: an entry in CHANGES.md and a version bump. -->
 # 02 Data model
 
-Version: 1.0 · Status: DRAFT · Owners: P1 knowledge tables, P2 business tables, P3 event tables · Case section(s): 4.1, 6, 12
+Version: 1.0 · Status: DRAFT · Owners: Myank (P1) knowledge and financial tables, Sinngam (P3) business and event tables · Case section(s): 4.1, 6, 12
 
 Three stores, each with one owner:
 

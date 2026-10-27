@@ -1,5 +1,7 @@
 # Panel defence: Enterprise Knowledge Assistant design
 
+**Who answers:** Myank (P1 extraction and indexing), Hemant (P4 front end; also owns the repo and merges every branch), Arka (P2 agent, LangGraph, evaluation), Sinngam (P3 back end, SQL and facts tools, event store, cost). Each person practises their own groups and the "Everyone" group, and can give a short answer for their buddy's group (Myank with Hemant, Arka with Sinngam).
+
 Made with the `defend-this` skill on `output/design/` (contracts 00 to 12), with hard questions from Codex
 (`prompt/codex/20261027-120719-brainstorm.md`), each checked against the contracts. Each owner practises their own
 part, and the "Everyone" questions. Say the answers in your own words; do not read them.
@@ -10,13 +12,13 @@ part, and the "Everyone" questions. Say the answers in your own words; do not re
 |---|---|---|---|
 | G1 | There is no way for an admin to connect a SQL source or add a table. Only one seeded `business.db` exists. | 02, 04 T1 to T4, 05 | **Designed now: contract 13** (tool registry, `GET /tools`, `POST /tools/{name}/try`). Defence in section 7. |
 | G2 | The router rule forces SQL when a project id appears, even in a document question ("what does the policy say about P-104?"). Invalid planner JSON falls back to DOCS silently. | 04 R1 | **Fixed in contract 04 R1:** BOTH when the question also has document words; a fallback is recorded as `ROUTE_FALLBACK`. |
-| G3 | Config A has no rerank step, so "top rerank score" in G1 fallback and "retrieval relevant" is undefined for A. | 04 G1, 11 s.6 | For config A use the top cosine score with its own threshold `obs.relevance_min_vector`. |
-| G4 | MRR is defined over the top 10, but the final list has 5. | 11 s.7 | Use MRR over the final top 5 (MRR@5), same list as hit@5. |
-| G5 | The recorder drops a failed write, so "every query is recorded" is not guaranteed. | 11 s.3 | Count dropped writes and show the count on the dashboard. |
-| G6 | The conflict rule sees only versions that reach the top 5. | 04 C1 | When a top chunk has a `doc_key` with other versions, also fetch the same section of the other versions. |
-| G7 | A confident but wrong OCR digit can pass the quality gate. | 10 X6, X7 | Rule: any **OCR page with a table** goes to review, whatever its score. Text-layer tables do not. |
+| G3 | Config A has no rerank step, so "top rerank score" in G1 fallback and "retrieval relevant" is undefined for A. | 04 G1, 11 s.6 | For config A use the top cosine score with its own threshold `obs.relevance_min_vector`. **Fixed in contract 04 G1 and 11 section 6.** |
+| G4 | MRR is defined over the top 10, but the final list has 5. | 11 s.7 | Use MRR over the final top 5 (MRR@5), same list as hit@5. **Fixed in contract 11 section 7.** |
+| G5 | The recorder drops a failed write, so "every query is recorded" is not guaranteed. | 11 s.3 | Count dropped writes and show the count on the dashboard. **Fixed in contract 11 section 3.** |
+| G6 | The conflict rule sees only versions that reach the top 5. | 04 C1 | When a top chunk has a `doc_key` with other versions, also fetch the same section of the other versions. **Fixed in contract 04 C1.** |
+| G7 | A confident but wrong OCR digit can pass the quality gate. | 10 X6, X7 | Rule: any **OCR page with a table** goes to review, whatever its score. Text-layer tables do not. **Fixed in contract 10 X7.** |
 | G8 | `session_id` comes from the client, so one user could read another session's chat. | 01 | Accepted for the demo: case 4.2 puts identity out of scope. Say so. |
-| G9 | The contracts say DRAFT. | all | Freeze them (v1.0) at the design review. G1 to G7 go in as part of v1.0 or through `CHANGES.md`. |
+| G9 | The contracts say DRAFT. | all | Freeze them (v1.0) at the design review. G1 to G7 are already in the contracts; contract 15 traces every case requirement. |
 
 ## 1. The idea in two sentences
 
@@ -28,7 +30,7 @@ execution success from AI-quality success" (case section 8).
 
 All endpoints are in contract 05. "Inside" names the rules from contracts 04, 10 and 11.
 
-### Documents (owner P1)
+### Documents (Myank's logic; Sinngam's routes)
 
 | Endpoint | Who calls it | What it does, in plain words | Inside |
 |---|---|---|---|
@@ -42,7 +44,7 @@ All endpoints are in contract 05. "Inside" names the rules from contracts 04, 10
 | `POST /documents/{id}/reindex` | admin | Reads the document again (after a rule or threshold change). Same chunk ids, so nothing is duplicated. | delete old chunks, then X2 to X9 |
 | `DELETE /documents/{id}` | admin | Removes the document's chunks and vectors; keeps the row for history. | status DELETED |
 
-### Questions (owner P2)
+### Questions (Arka's logic; Sinngam's routes and tools)
 
 | Endpoint | Who calls it | What it does | Inside |
 |---|---|---|---|
@@ -52,7 +54,7 @@ All endpoints are in contract 05. "Inside" names the rules from contracts 04, 10
 | `POST /tools/{name}/try` | admin page | Runs one approved tool with sample arguments, so the admin can see its rows and summary before users rely on it. Read-only. | same checks as a real call; 422 ARGS_INVALID, 504 TIMEOUT |
 | `GET /health` | anyone, start-up check | Says whether Qdrant, the LLM, OCR, the reranker and the databases are reachable. | live checks; reports `model_not_found` clearly |
 
-### Feedback, metrics and evaluation (owner P3)
+### Feedback, metrics and evaluation (Sinngam; evaluation runs are Arka's)
 
 | Endpoint | Who calls it | What it does | Inside |
 |---|---|---|---|
@@ -138,7 +140,7 @@ not claim ours is better on cost or quality.
 the single ingest worker, the in-process BM25 index, SQLite for events with one writer, and the provider rate
 limits. The path is more workers, a search engine for BM25 such as OpenSearch, and Postgres for events.
 
-### SQL and the data tool (P2, but everyone should know S1)
+### SQL and the data tool (Sinngam; routing questions S6 and S14 are Arka's; everyone knows S1)
 
 **S1. How does an admin connect a SQL database?** In our design the admin does not connect databases from the
 screen, by choice. A developer adds the connection string to the configuration, using a read-only database user,
@@ -167,7 +169,7 @@ We chose 4 safe templates and accept fewer answerable questions; text-to-SQL wit
 "total" or "spent" mean the data is needed. Then the LLM planner returns JSON with the route and the tool arguments.
 If the question also asks about policy, the route is BOTH, and our test set checks the route of every case.
 
-### Extraction (P1)
+### Extraction (Myank; Hemant backs up)
 
 **X1. How do you handle a PDF that is half text and half scanned?** We decide per page, not per document. Text
 pages use the text layer, and only the scanned pages go to the vision model, so we pay for OCR only where needed.
@@ -188,7 +190,7 @@ synthetic and public documents only.
 numbers stay exactly as printed. A chunk never cuts a table, and if a table is too long, each piece repeats the
 header row.
 
-### Retrieval and answers (P2)
+### Retrieval and answers (Arka; Sinngam backs up)
 
 **R1. Why both BM25 and vectors?** Vectors find meaning but miss exact IDs like `POL-HR-014`; BM25 finds exact words
 but misses paraphrases. We merge them by rank with RRF, so their different score scales do not matter.
@@ -200,7 +202,7 @@ reaches the top 5, so a conflict is not missed.
 **R3. How do follow-up questions work?** We send at most the last 3 turns, each cut to 600 characters, and the
 planner rewrites the follow-up into a full question. The drill-down shows which turns were used.
 
-### Observability and evaluation (P3)
+### Observability and evaluation (O1 and O3 Arka; O2 Sinngam)
 
 **O1. How do you measure retrieval accuracy?** On a fixed test set of about 25 questions where we know the right
 document and page: hit@5, recall@5 and MRR@5. On live questions we have no answer key, so we show the top score
@@ -213,7 +215,7 @@ without a price shows "price not set", never zero.
 **O3. Did hybrid search actually help?** We do not know until the A and B runs. We report whatever we find,
 including the extra latency and tokens, with three failure cases.
 
-### Front end (P4)
+### Front end (Hemant; Myank backs up)
 
 **F1. Why React and not Streamlit?** The case allows either; we chose React because our existing app already uses
 it and the dashboard needs a drill-down page per query. It costs more front-end work.
@@ -221,7 +223,7 @@ it and the dashboard needs a drill-down page per query. It costs more front-end 
 **F2. What does a user see when there is no answer?** A fixed sentence, "I could not find this in the approved
 documents or data", plus the closest sources if any, and a LOW confidence badge.
 
-## 7. The SQL part, end to end (contract 13)
+## 7. The SQL part, end to end (contract 13; Sinngam)
 
 **In one breath:** the model never writes SQL. It picks one of 6 approved tools and fills its arguments; code checks
 them, runs fixed SQL on a read-only connection, does all the maths in SQL, and the answer cites the result as `T1`.
@@ -301,7 +303,7 @@ not SQL text, and the connection cannot write.
 in the database. `headcount` returns counts only. With real data we would add row-level access by role, which needs
 the real login that case 4.2 puts out of scope.
 
-## 8. Financial reports and their tables (contract 14)
+## 8. Financial reports and their tables (contract 14; Myank extracts, Sinngam's tools answer)
 
 **In one breath:** every financial table is stored twice. As a Markdown chunk, it is found and cited by search; as one
 row per number in `fin_fact`, it gives exact values to four approved tools. The model never adds or compares numbers.
@@ -359,14 +361,15 @@ is short we build facts only for P&L and segment tables; other tables still answ
 
 ## 9. Self-check before the panel (answer without help)
 
-**P1:** Why is FY2023-24 revenue taken from the newer report? Why is a page with a score of exactly 0.85 searchable? What happens to the good pages when one page fails
-OCR? Why do chunks never cross a page?
+**Myank:** Why is FY2023-24 revenue taken from the newer report? Why is a page with a score of exactly 0.85
+searchable, but an OCR page with a table is not? What happens to the good pages when one page fails OCR? Why do chunks
+never cross a page?
 
-**P2:** Why is "spent" defined in a view and not in each tool? What stops the model from running its own SQL? Which route does "what does the policy say about P-104"
-take, and why? What does the user see when the tool times out?
+**Hemant:** In which order do you merge the four branches, and why? Which endpoint gives the drill-down page its data? What do you show when the cost is "price not set"? How
+does the admin approve a page and a table? How do the chat filters reach the search?
 
-**P3:** Why is MRR computed on 5 results? How is a Portkey cache hit counted in cost? Which outcome does a 200 with
-zero valid citations get?
+**Arka:** Which route does "what does the policy say about P-104" take, and why? Why is MRR computed on 5 results?
+Which outcome does a 200 with zero valid citations get? How do you find a conflicting version that is not in the top 5?
 
-**P4:** Which endpoint gives the drill-down page its data? What do you show when the cost is "price not set"? How
-does the admin approve a page?
+**Sinngam:** Why is "spent" defined in a view and not in each tool? What stops the model from running its own SQL? How
+is a Portkey cache hit counted in cost? What does the dashboard show when the recorder cannot write?

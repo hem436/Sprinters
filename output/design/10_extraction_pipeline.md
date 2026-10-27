@@ -93,17 +93,18 @@ text report with scanned annexures loses the annexures. Per-page routing fixes t
 1. **Tables first.** pdfplumber `find_tables()` on the page. Each table becomes a Markdown table, and a financial table also becomes normalised rows in `fin_fact` (contract 14; complex tables go to the vision model as JSON). The text line
    just above the table (the caption) and any unit line ("₹ in crore", "in millions", "%") are stored with it as
    `caption` and `unit`.
-2. **Text outside the tables.** Extract text from the page with the table areas removed
+2. **Clean the text (FR-02).** Remove lines that repeat in the same place on more than half of the pages (running headers, footers, page numbers); join words split by a line-end hyphen; join lines broken inside a sentence; normalise Unicode (NFKC) and whitespace; drop empty lines. Numbers and table cells are never changed by cleaning. The removed header and footer lines are kept in the ExtractionReport, so we can show what was dropped.
+3. **Text outside the tables.** Extract text from the page with the table areas removed
    (`page.outside_bbox(table.bbox)`), so table numbers are not repeated as loose text.
-3. **Numbers are kept exactly as printed.** No rounding, no reformatting. `(1,234)` stays `(1,234)`; Indian grouping
+4. **Numbers are kept exactly as printed.** No rounding, no reformatting. `(1,234)` stays `(1,234)`; Indian grouping
    `1,23,456` stays as is. A parser for amounts exists only in the quality check and the SQL tools, never in the
    stored text.
-4. **Two-column pages (SHOULD).** If the words split into two x-bands with an empty vertical gap of at least
+5. **Two-column pages (SHOULD).** If the words split into two x-bands with an empty vertical gap of at least
    `extract.column_gap_pt` (18 pt) through 80 % of the page height, read the left band, then the right band.
    Otherwise read in normal line order.
-5. **Headings.** A line in a larger font than the page's body text (pdfplumber `chars` size), or a numbered line
+6. **Headings.** A line in a larger font than the page's body text (pdfplumber `chars` size), or a numbered line
    like `4.2 Per diem`, starts a new `section`. The section path carries over to the next page.
-6. Fallback: if pdfplumber raises on a page, use pypdf `extract_text()` for that page and record method
+7. Fallback: if pdfplumber raises on a page, use pypdf `extract_text()` for that page and record method
    `text_pypdf`.
 
 ## 7. X5 Vision OCR (scanned, garbled, mixed and image pages)
@@ -149,7 +150,7 @@ Each page gets `quality` in [0, 1] and zero or more flags.
 | OCR with a table | the score above, minus 0.2 if a number in the table fails to parse as a number (for example `1,23,4S6`) | `NUMBER_SUSPECT` |
 | Any | 0 | `OCR_FAILED`, `BLANK` |
 
-**X7 rule:** a page with `quality` < `extract.review_threshold` (0.85) or flag `OCR_FAILED` gets status
+**X7 rule:** a page with `quality` < `extract.review_threshold` (0.85), flag `OCR_FAILED`, or **an OCR page with flag `HAS_TABLE`** (a confident but wrong digit cannot be seen in the score) gets status
 `NEEDS_REVIEW`. Its chunks are stored but **not searchable** until a KNOWLEDGE_ADMIN approves it on the preview
 page (page image beside the extracted text). The other pages of the document are searchable at once. Reason:
 the case wants answers from *approved* evidence, and a misread number in a financial table is worse than
@@ -267,6 +268,8 @@ page.
 | `extract.review_threshold` | 0.85 | X7 |
 | `ocr.model` / `ocr.max_edge_px` / `ocr.prompt_version` | gemini flash / 1600 / ocr-v1 | X5 |
 | `chunk.target_tokens` / `chunk.max_tokens` / `chunk.overlap_tokens` | 400 / 700 / 80 | X8 |
+| `embed.model` / `embed.fallback_model` / `embed.batch_size` | Gemini embedding (existing) / local sentence-transformers / 32 | X9; a change of model needs a re-index, because the vector size changes |
+| `clean.repeat_line_ratio` | 0.5 | X4 step 2 |
 
 ## 13. What we change in the existing repo, and what we keep
 

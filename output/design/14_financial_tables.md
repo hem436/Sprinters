@@ -1,8 +1,8 @@
-<!-- Contract 14. Owner: P1 (extraction, checks), P2 (tools). Status: DRAFT until the design review, then FROZEN v1.0.
+<!-- Contract 14. Owners: Myank (P1) extraction and checks, Sinngam (P3) tools. Status: DRAFT until the design review, then FROZEN v1.0.
      After freezing, change only through the design-change skill: an entry in CHANGES.md and a version bump. -->
 # 14 Financial reports and their tables
 
-Version: 1.0 · Status: DRAFT · Owners: P1 extraction and checks, P2 tools, P3 tests · Case section(s): 3, 4.1, 5
+Version: 1.0 · Status: DRAFT · Owners: Myank (P1) extraction and checks, Sinngam (P3) tools, Arka (P2) routing and eval cases · Case section(s): 3, 4.1, 5
 (FR-02, FR-07, FR-09), 9 (structured, combined, conflicting scenarios)
 
 ## 1. The idea
@@ -33,7 +33,7 @@ flowchart LR
   N --> MD[Markdown chunk for search]
 ```
 
-## 2. Extraction steps (P1)
+## 2. Extraction steps (Myank)
 
 | Step | Rule | Why |
 |---|---|---|
@@ -93,7 +93,7 @@ The FY2023-24 revenue appears in the FY2023-24 report and again as the compariso
 We keep both rows. The tools use the newest report's value; if the values differ, the answer says "restated in the
 FY2024-25 report (was ₹10,000 crore)" and cites both pages. This is conflict rule C1 (contract 04) for numbers.
 
-## 6. Approved tools (P2; added to the registry of contract 13, source `knowledge`, read-only)
+## 6. Approved tools (Sinngam; added to the registry of contract 13, source `knowledge`, read-only)
 
 | Tool | Arguments | Returns | Example |
 |---|---|---|---|
@@ -117,7 +117,7 @@ Rules for all four:
 | "why", "reason", "explain", "outlook", "risk" about a report | DOCS | "Why did margins fall?" |
 | both in one question | BOTH | "How much did profit grow and why?" |
 
-## 8. Tests and evaluation (P3)
+## 8. Tests and evaluation (Myank and Sinngam for unit tests, Arka for eval cases)
 
 | Test or case | Expected |
 |---|---|
@@ -134,5 +134,5 @@ Rules for all four:
 
 ## 9. Scope and cost
 
-About one extra iteration for P1. If time is short: build the facts for P&L and segment tables only; other tables
+About one extra iteration for Myank (WP-EX6) and half an iteration for Sinngam (WP-BE3). If time is short: build the facts for P&L and segment tables only; other tables
 stay Markdown chunks, which still give cited answers through search.

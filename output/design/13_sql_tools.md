@@ -1,8 +1,8 @@
-<!-- Contract 13. Owner: P2. Status: DRAFT until the design review, then FROZEN v1.0.
+<!-- Contract 13. Owner: Sinngam (P3). Status: DRAFT until the design review, then FROZEN v1.0.
      After freezing, change only through the design-change skill: an entry in CHANGES.md and a version bump. -->
 # 13 SQL data and approved tools
 
-Version: 1.0 · Status: DRAFT · Owner: P2 · Case section(s): 3, 4.1 ("SQL or approved API tool calling against a
+Version: 1.0 · Status: DRAFT · Owner: Sinngam (P3); routing to the tools is Arka's (contract 04) · Case section(s): 3, 4.1 ("SQL or approved API tool calling against a
 provided synthetic business dataset"), 5 FR-07, 6 (Tools layer), 9 (structured, combined, tool-failure scenarios)
 
 ## 1. The idea
@@ -157,7 +157,7 @@ SQL parser (sqlglot) refuses anything that is not a single SELECT on allowed vie
 it runs read-only with the same time limit; the answer is labelled "computed by a generated query", and its
 outcome is never higher than PARTIAL. We measure it separately on the test set.
 
-## 8. Tests (P3 writes them before P2 codes)
+## 8. Tests (written before the tool code; Arka reviews them)
 
 | Test | Expected |
 |---|---|
