@@ -9,6 +9,8 @@
 backend/data
 backend/tests
 model/tests
+extraction/tests
+extraction/data
 output
 team
 web

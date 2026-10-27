@@ -173,11 +173,14 @@ class QueryRecorder:
         *,
         cache_hit: bool = False,
         estimate: Usage | None = None,
+        raw_output: str | None = None,
     ) -> None:
-        """usage: the provider's usage object. If it is missing, pass estimate=estimated_usage(...)."""
+        """usage: the provider's usage object. If it is missing, pass estimate=estimated_usage(...).
+        raw_output: the model's reply text, shown in the drill-down (masked before it is stored)."""
         self._llm_calls.append({
             "purpose": purpose, "model": model, "prompt_version": prompt_version, "cache_hit": cache_hit,
             "latency_ms": latency_ms, "usage": normalize_usage(usage) or estimate or Usage(source="ESTIMATED"),
+            "raw_output": mask_pii(raw_output)[0] if raw_output else None,
         })
 
     @_never_raise
@@ -330,7 +333,8 @@ class QueryRecorder:
                      "prompt_version": c["prompt_version"], "tokens_in": c["usage"].tokens_in,
                      "tokens_out": c["usage"].tokens_out, "tokens_cached": c["usage"].tokens_cached,
                      "cache_hit": int(c["cache_hit"]), "latency_ms": c["latency_ms"],
-                     "cost_usd": None if cc is None else str(cc), "usage_source": c["usage"].source}
+                     "cost_usd": None if cc is None else str(cc), "usage_source": c["usage"].source,
+                     "raw_output": c.get("raw_output")}
                     for c, cc in zip(self._llm_calls, call_costs, strict=True)
                 ])
                 # Tool call ids are T1, T2 per query; stored with the query id so they are unique.

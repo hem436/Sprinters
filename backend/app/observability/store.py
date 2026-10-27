@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS llm_call (
     latency_ms     INTEGER,
     cost_usd       TEXT,
     usage_source   TEXT NOT NULL CHECK (usage_source IN ('PROVIDER','ESTIMATED')),
+    raw_output     TEXT,            -- the model's reply, for the drill-down's Generation panel
     CHECK (query_id IS NOT NULL OR document_id IS NOT NULL)
 );
 CREATE INDEX IF NOT EXISTS ix_llm_call_query ON llm_call (query_id);
@@ -129,6 +130,14 @@ CREATE TABLE IF NOT EXISTS feedback (
     ts               TEXT NOT NULL
 );
 
+-- Reviewer comments, kept apart from the user's feedback (web app drill-down: reviewer_comments).
+CREATE TABLE IF NOT EXISTS query_review (
+    query_id TEXT NOT NULL REFERENCES query_event (query_id),
+    comment  TEXT NOT NULL,
+    ts       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_query_review_query ON query_review (query_id);
+
 CREATE TABLE IF NOT EXISTS model_price (
     model             TEXT PRIMARY KEY,
     usd_per_1m_in     TEXT,
@@ -174,6 +183,9 @@ def init_db(path: Path) -> None:
     try:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        # A store made before llm_call.raw_output existed gets the column; CREATE IF NOT EXISTS does not add it.
+        if "raw_output" not in {r[1] for r in conn.execute("PRAGMA table_info(llm_call)")}:
+            conn.execute("ALTER TABLE llm_call ADD COLUMN raw_output TEXT")
         conn.commit()
     finally:
         conn.close()
