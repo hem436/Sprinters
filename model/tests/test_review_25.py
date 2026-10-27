@@ -190,3 +190,19 @@ def test_live_llm_error_keeps_the_providers_reason(corpus, table_reranker):
         "laptops?", "s1", recorder)
     assert (r.outcome, r.reason_code) == ("FAILED", "LLM_ERROR")
     assert "1010" in recorder.stage_details["generate"]["llm_error"] and recorder.finished["error_category"] == "LLM_ERROR"
+
+
+def test_live_paraphrase_with_non_breaking_hyphens_is_supported(corpus):
+    """The live model's own sentence for P-104: "‑" is U+2011, and "spending"/"exceeded" paraphrase the tool summary."""
+    from agent.types import AnswerJSON, Claim
+    from agent.validate import check_grounding
+    evidence = {e.id: e for e in build_evidence([], [], [P104], 6000)}
+    claim = Claim(text="Yes, project P\u2011104 exceeded its travel budget for FY2026\u201127, spending \u20b94,35,500 "
+                       "against a \u20b94,00,000 budget (over by \u20b935,500).", citations=["T1"])
+    score, checks = check_grounding(AnswerJSON(answer_markdown="", claims=[claim]), evidence)
+    assert score == 1.0, checks
+
+
+def test_eval_criteria_ignore_hyphen_style():
+    from agent.evaluation import criteria_ok
+    assert criteria_ok("POL\u2011HR\u2011014 requires encryption", ["POL-HR-014"], [])

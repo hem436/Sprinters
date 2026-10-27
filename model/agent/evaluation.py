@@ -15,6 +15,7 @@ from pathlib import Path
 
 from agent.ports import RecorderPort, SearchPort
 from agent.types import QueryResponse
+from agent.validate import normalise
 
 K = 5          # hit@5, recall@5 and MRR@5 use the final top 5 (contract 11 section 7, gap G4)
 
@@ -94,8 +95,10 @@ def reciprocal_rank(found: list[dict], expected: list[dict], k: int = K) -> floa
 
 
 def criteria_ok(answer: str, must_include: list[str], must_not_include: list[str]) -> bool:
-    text = answer.lower()
-    return all(s.lower() in text for s in must_include) and not any(s.lower() in text for s in must_not_include)
+    """Case-blind, and "P‑104" with a non-breaking hyphen counts as "P-104" (validate.normalise)."""
+    text = normalise(answer).lower()
+    return (all(normalise(s).lower() in text for s in must_include)
+            and not any(normalise(s).lower() in text for s in must_not_include))
 
 
 # --- running -----------------------------------------------------------------------------------------------------
