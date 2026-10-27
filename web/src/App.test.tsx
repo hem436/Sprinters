@@ -30,7 +30,14 @@ describe('every route renders on mock data', () => {
     saveCredentials(null)
     renderWithProviders(<App />, '/dashboard')
     expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
-    expect(screen.queryByText(/Log out/)).not.toBeInTheDocument()
+  })
+
+  it('logs out from an admin page back to the chat and clears the saved login', async () => {
+    renderWithProviders(<App />, '/dashboard')
+    await userEvent.click(screen.getByRole('button', { name: 'Log out' }))
+    expect(await screen.findByText('Ask the knowledge base')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument()
+    expect(sessionStorage.getItem('ka.auth')).toBeNull()
   })
 })
 
