@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { costFor } from '../api/mock/scenarios'
-import { formatCost, formatMs, formatPct, formatTokens } from './format'
+import { formatCompact, formatCost, formatMs, formatPct, formatTokens } from './format'
 import { checkUpload } from './upload'
 
 describe('formatCost', () => {
@@ -43,5 +43,14 @@ describe('formatTokens', () => {
   it('shows the total, and in and out on request', () => {
     expect(formatTokens(2410, 96)).toBe('2,506 tokens')
     expect(formatTokens(2410, 96, true)).toBe('2,506 tokens (2,410 in · 96 out)')
+  })
+})
+
+describe('formatCompact', () => {
+  it('keeps small counts whole and shortens large ones', () => {
+    expect(formatCompact(950)).toBe('950')
+    expect(formatCompact(9_999)).toBe('9,999')
+    expect(formatCompact(210_128)).toBe('210.1K')
+    expect(formatCompact(1_234_567)).toBe('1.2M')
   })
 })
