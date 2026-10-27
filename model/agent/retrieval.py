@@ -1,10 +1,11 @@
 """Rules H1 to H4 and C1 (contract 04): hybrid search, fusion, rerank, and version conflicts."""
 import os
+import queue
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
 
-from agent.config import AgentConfig
+from agent.config import AgentConfig, rerank_model
 from agent.numbers import numbers_in
 from agent.ports import RecorderPort, RerankerPort, SearchPort
 from agent.recording import hit_rows, run_stage
@@ -126,19 +127,27 @@ class FlashRankReranker:
     questions with expected evidence, 27 Oct): MiniLM-L-12 puts the expected chunk first in 11 (TinyBERT-L-2, the
     FlashRank default: 9), MRR 0.776 against 0.718, and the lowest top score of an answerable question is 0.144
     (TinyBERT: 0.003), so a relevance gate near 0.1 separates answerable from unanswerable questions. Price: about
-    30 ms per chunk on the workstation CPU against 1.5 ms.
-    """
-    DEFAULT_MODEL = "ms-marco-MiniLM-L-12-v2"
+    30 ms per chunk on the workstation CPU against 1.5 ms. The relevance gate follows the model (config.RERANK_GATES).
 
-    def __init__(self, cache_dir: str | None = None, model_name: str | None = None):
+    Threads: a small pool of rankers (AGENT_RERANK_WORKERS, default 2). Each call takes one ranker and gives it back,
+    so a ranker (its tokenizer and ONNX session) is never used by two threads at once, and two users rerank in
+    parallel instead of queueing on one lock (review #25). Each ranker holds the model once (about 130 MB).
+    """
+    def __init__(self, cache_dir: str | None = None, model_name: str | None = None, workers: int | None = None):
         from flashrank import Ranker   # optional dependency: ~50 MB, so not loaded at import time
-        self.model_name = model_name or os.getenv("AGENT_RERANK_MODEL") or self.DEFAULT_MODEL
+        self.model_name = model_name or rerank_model()
         cache_dir = cache_dir or os.getenv("AGENT_RERANK_CACHE")
-        self._ranker = (Ranker(model_name=self.model_name, cache_dir=cache_dir) if cache_dir
-                        else Ranker(model_name=self.model_name))
+        self._pool: queue.Queue = queue.Queue()
+        for _ in range(max(1, workers or int(os.getenv("AGENT_RERANK_WORKERS", "2")))):
+            self._pool.put(Ranker(model_name=self.model_name, cache_dir=cache_dir) if cache_dir
+                           else Ranker(model_name=self.model_name))
 
     def score(self, query: str, texts: list[str]) -> list[float]:
         from flashrank import RerankRequest
-        results = self._ranker.rerank(RerankRequest(query=query, passages=[{"id": i, "text": t} for i, t in enumerate(texts)]))
+        ranker = self._pool.get()      # one ranker per call, given back after: never two threads on one ranker
+        try:
+            results = ranker.rerank(RerankRequest(query=query, passages=[{"id": i, "text": t} for i, t in enumerate(texts)]))
+        finally:
+            self._pool.put(ranker)
         by_id = {int(r["id"]): float(r["score"]) for r in results}
         return [by_id.get(i, 0.0) for i in range(len(texts))]

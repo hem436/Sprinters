@@ -112,8 +112,8 @@ def test_fr05_reranker_model_is_a_setting(monkeypatch):
     monkeypatch.setitem(sys.modules, "flashrank", fake)
     monkeypatch.delenv("AGENT_RERANK_MODEL", raising=False)
     monkeypatch.delenv("AGENT_RERANK_CACHE", raising=False)
-    FlashRankReranker()
+    FlashRankReranker(workers=1)
     monkeypatch.setenv("AGENT_RERANK_MODEL", "ms-marco-TinyBERT-L-2-v2")
-    FlashRankReranker(cache_dir="/tmp/fr")
+    FlashRankReranker(cache_dir="/tmp/fr", workers=1)
     assert made == [{"model_name": "ms-marco-MiniLM-L-12-v2"},
                     {"model_name": "ms-marco-TinyBERT-L-2-v2", "cache_dir": "/tmp/fr"}]

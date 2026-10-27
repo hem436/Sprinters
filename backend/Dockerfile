@@ -11,9 +11,11 @@ COPY backend/requirements.txt requirements.txt
 COPY model/requirements.txt model/requirements.txt
 COPY extraction/requirements.txt extraction/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt -r model/requirements.txt -r extraction/requirements.txt
-# the agent's reranker model (FlashRank MiniLM-L-12), fetched at build time: the first query must not download it
-ENV AGENT_RERANK_CACHE=/app/flashrank
-RUN python -c "from flashrank import Ranker; Ranker(model_name='ms-marco-MiniLM-L-12-v2', cache_dir='/app/flashrank')"
+# the agent's reranker model, fetched at build time so the first query does not download it. The gate follows the
+# model (model/agent/config.py RERANK_GATES). The cache belongs to appuser, so another model can still be fetched.
+ARG RERANK_MODEL=ms-marco-MiniLM-L-12-v2
+ENV AGENT_RERANK_MODEL=$RERANK_MODEL AGENT_RERANK_CACHE=/app/flashrank
+RUN python -c "import os; from flashrank import Ranker; Ranker(model_name=os.environ['AGENT_RERANK_MODEL'], cache_dir='/app/flashrank')"
 
 COPY backend/app ./app
 COPY backend/config ./config
@@ -23,7 +25,7 @@ COPY model/prompts ./model/prompts
 COPY evals/eval_set.jsonl ./evals/eval_set.jsonl
 COPY extraction/ingestion ./extraction/ingestion
 
-RUN useradd --create-home --uid 1000 appuser && mkdir -p /app/data && chown appuser /app/data
+RUN useradd --create-home --uid 1000 appuser && mkdir -p /app/data && chown -R appuser /app/data /app/flashrank
 USER appuser
 
 EXPOSE 8000

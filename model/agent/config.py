@@ -1,5 +1,24 @@
 """Agent settings. Every threshold the rules use lives here (contracts 04 and 11), never in the rule code."""
-from dataclasses import dataclass, fields
+import os
+from dataclasses import dataclass, field, fields
+
+RERANK_DEFAULT_MODEL = "ms-marco-MiniLM-L-12-v2"
+# The relevance gate per reranker, measured on the demo corpus (27 Oct, 284 chunks): lowest top score of an answerable
+# question / highest of an unanswerable one. MiniLM-L-12: 0.144 / 0.001. TinyBERT-L-2: 0.003 / 0.000.
+RERANK_GATES = {"ms-marco-MiniLM-L-12-v2": 0.1, "ms-marco-TinyBERT-L-2-v2": 0.002}
+DESIGN_GATE = 0.3       # contract 11 section 6, for a reranker we have not measured
+
+
+def rerank_model() -> str:
+    return os.getenv("AGENT_RERANK_MODEL") or RERANK_DEFAULT_MODEL
+
+
+def default_relevance_min() -> float:
+    """AGENT_RELEVANCE_MIN when set; else the measured gate of the reranker in use, so switching the reranker never
+    leaves the other model's gate behind (review #25)."""
+    if os.getenv("AGENT_RELEVANCE_MIN"):
+        return float(os.environ["AGENT_RELEVANCE_MIN"])
+    return RERANK_GATES.get(rerank_model(), DESIGN_GATE)
 
 
 @dataclass(frozen=True)
@@ -18,10 +37,9 @@ class AgentConfig:
     ret_rerank_top_n: int = 5
 
     # 04 G1 and 11 section 6: relevance and grounding thresholds
-    # top rerank score below this means "no relevant evidence". 0.1 is measured for the MiniLM-L-12 reranker on the
-    # demo corpus (27 Oct): the lowest answerable top score was 0.144, unanswerable ones 0.000 to 0.001. It was 0.3
-    # for TinyBERT; remeasure whenever the reranker or the corpus changes (review #25)
-    obs_relevance_min: float = 0.1          # MiniLM-L-12, measured
+    # top rerank score below this means "no relevant evidence"; measured per reranker (RERANK_GATES above).
+    # Remeasure whenever the reranker or the corpus changes.
+    obs_relevance_min: float = field(default_factory=default_relevance_min)
     obs_relevance_min_vector: float = 0.6   # the same for config A, which has only cosine scores
     obs_relevance_high: float = 0.7         # confidence HIGH (rerank score)
     obs_relevance_high_vector: float = 0.8  # confidence HIGH (cosine score, config A)

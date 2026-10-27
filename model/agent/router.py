@@ -34,10 +34,24 @@ _GREETING = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|good (morning|aftern
 # company: it must search the documents and say "could not find", not greet (FR-07, FR-10). The whole message must
 # be polite phrases only: "Hi, how are you?", "ok thanks" and "thank you very much!" are small talk; "thanks, what
 # about Q2?" and "help with leave rules" are questions (review #25, two rounds).
-_POLITE = (r"hi|hello|hey|thanks|thank you|ok(ay)?|bye|goodbye|good (morning|afternoon|evening)|who are you|"
-           r"what can you do|how are you|what do you do|help|there|so much|very much|a lot|again|that helps|got it|"
-           r"great|cool|nice|perfect|alright")
-_SMALLTALK = re.compile(rf"^(\s*({_POLITE})\b[\s,!.?]*)+$", re.I)
+_POLITE = sorted((tuple(p.split()) for p in (
+    "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "bye", "goodbye", "good morning", "good afternoon",
+    "good evening", "who are you", "what can you do", "how are you", "what do you do", "help", "there", "so much",
+    "very much", "a lot", "again", "that helps", "got it", "great", "cool", "nice", "perfect", "alright")),
+    key=len, reverse=True)
+
+
+def is_small_talk(question: str) -> bool:
+    """Every word must belong to a polite phrase. A plain left-to-right scan over the words, longest phrase first: no
+    regex, so no backtracking on long input (review #25). "Q2", "leave" or "per diem" make it a question."""
+    words = re.findall(r"[a-z0-9']+", question.lower())
+    i = 0
+    while i < len(words):
+        phrase = next((p for p in _POLITE if tuple(words[i:i + len(p)]) == p), None)
+        if phrase is None:
+            return False
+        i += len(phrase)
+    return bool(words)
 
 
 def rule_signals(question: str) -> tuple[bool, bool]:
@@ -143,7 +157,7 @@ def route_question(question: str, context: list[Turn], llm: LLMPort, tools: Tool
 def only_real_smalltalk(decision: RouteDecision, question: str) -> RouteDecision:
     """R1: the planner's CONVERSATIONAL stands only for real small talk; any other question searches the documents,
     so a question we cannot answer gets the honest "could not find" (G1), never a greeting."""
-    if decision.route != "CONVERSATIONAL" or (len(question) <= 60 and _SMALLTALK.match(question)):
+    if decision.route != "CONVERSATIONAL" or is_small_talk(question):
         return decision
     return RouteDecision("DOCS", decision.standalone_query or question, reason="RULE_OVERRIDE")
 

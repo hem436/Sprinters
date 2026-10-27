@@ -10,7 +10,7 @@ from agent.retrieval import Conflict
 from agent.safety import PROMPT_CANARY
 from agent.types import AnswerJSON, Evidence, ScoredChunk, ToolResult, Turn
 
-ANSWER_PROMPT_VERSION = "answer-v2"   # v2: state the deciding numbers (live run)
+ANSWER_PROMPT_VERSION = "answer-v2.1"   # v2 text (state the deciding numbers); .1: evidence tags carry current=
 _SYSTEM = (Path(__file__).parent.parent / "prompts" / "answer-v2.txt").read_text(encoding="utf-8")
 
 # 04 G1, 13 section 5: fixed texts, never written by the model

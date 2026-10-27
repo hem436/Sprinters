@@ -131,6 +131,7 @@ _DASHES = str.maketrans({c: "-" for c in "‐‑‒–—―−"} | {" ": " ", 
 _SUFFIXES = ("ations", "ation", "ments", "ment", "ings", "ing", "ions", "ion", "ies", "ied", "ed", "es", "s", "ly")
 _IRREGULAR = {"spent": "spend", "paid": "pay"}
 MIN_STEM = 4
+_ACRONYM_PLURALS = {"kpis", "apis", "skus", "cpus", "gpus", "ceos", "faqs", "sops"}
 
 
 def normalise(text: str) -> str:
@@ -157,7 +158,8 @@ def stem(word: str) -> str:
                 break
         else:
             # uses, laptops: a plain plural; status, bonus, basis end in "s" but are singular (review #25)
-            singular = word.endswith("ss") or (word.endswith(("us", "is")) and len(word) > 4)   # not kpis, skus
+            # status, bonus, plus, thus, axis end in "s" but are singular; kpis, apis, skus are plurals (review #25)
+            singular = word.endswith("ss") or (word.endswith(("us", "is")) and word not in _ACRONYM_PLURALS)
             if word.endswith("s") and not singular and len(word) > 3:
                 word = word[:-1]
     return word[:-1] if word.endswith("e") and len(word) > MIN_STEM else word

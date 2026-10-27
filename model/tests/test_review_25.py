@@ -600,7 +600,8 @@ def test_r10_2_the_groq_planner_model_is_used_on_groq_only(monkeypatch):
     monkeypatch.delenv("LLM_ROUTE_MODEL", raising=False)
     monkeypatch.setenv("LLM_BASE_URL", "https://api.portkey.ai/v1")
     assert llm_from_env().route_model is None                          # the built-in Groq name: Groq only
-    assert llm_from_env(route_model="openai/gpt-oss-20b").route_model == "openai/gpt-oss-20b"   # explicit: kept
+    # app.yaml's value is a Groq model name too: Groq hosts only (review of bb48471); LLM_ROUTE_MODEL is the override
+    assert llm_from_env(route_model="openai/gpt-oss-20b").route_model is None
     monkeypatch.delenv("LLM_BASE_URL")
     assert llm_from_env().route_model == DEFAULT_ROUTE_MODEL
     monkeypatch.setenv("LLM_ROUTE_MODEL", "my-model")
@@ -608,11 +609,10 @@ def test_r10_2_the_groq_planner_model_is_used_on_groq_only(monkeypatch):
     assert llm_from_env().route_model == "my-model"
 
 
-def test_r10_4_search_and_rerank_have_separate_locks(corpus):
+def test_r10_4_only_the_search_takes_turns(corpus):
     reranker = object()
     agent = Agent(StubSearch(corpus), StubTools(), FakeLLM({}), reranker)
-    search_lock, rerank_lock = agent._parts_lock
-    assert search_lock is not rerank_lock and agent._parts[2] is reranker
+    assert agent._parts[2] is reranker and type(agent._parts_lock).__name__ == "RLock"   # the reranker has its pool
 
 
 def test_r10_5_a_file_error_does_not_fail_the_run(tmp_path, corpus, table_reranker):
@@ -651,8 +651,10 @@ def test_r10_8_status_and_bonus_keep_their_plural_together():
 
 # --- review of 30ac1d1..85d460f (merged as ffc9a34) and the live demo after it ----------------------------------
 
-def test_r11_1_the_gate_fits_the_minilm_reranker():
+def test_r11_1_the_gate_fits_the_minilm_reranker(monkeypatch):
     from agent.config import AgentConfig
+    monkeypatch.delenv("AGENT_RELEVANCE_MIN", raising=False)
+    monkeypatch.delenv("AGENT_RERANK_MODEL", raising=False)
     assert AgentConfig().obs_relevance_min == 0.1          # lowest answerable top score measured: 0.144
 
 
@@ -699,8 +701,91 @@ def test_live_current_rate_may_cite_the_current_version_only(corpus):
     evidence = {e.id: e for e in build_evidence([ScoredChunk(v2, 0.9), ScoredChunk(v1, 0.8)], [], [], 6000)}
     _, user = build_prompt("q", [], list(evidence.values()))
     assert 'current="yes"' in user and 'current="no"' in user
-    amount = "2,000" if "2,000" in v2.text else "2000"
-    on_v2 = Claim(text=f"The current rate is ₹{amount} per day.", citations=["E1"])
-    on_v1 = Claim(text=f"The current rate is ₹{amount} per day.", citations=["E2"])
+    from agent.numbers import numbers_in
+    new, old = sorted(numbers_in(v2.text))[-1], sorted(numbers_in(v1.text))[-1]      # each version's own amount
+    on_v2 = Claim(text=f"The current rate is ₹{int(new):,} per day.", citations=["E1"])
+    on_v1 = Claim(text=f"The current rate is ₹{int(old):,} per day.", citations=["E2"])   # right number, old version
     assert check_grounding(AnswerJSON(answer_markdown="", claims=[on_v2]), evidence)[0] == 1.0
     assert check_grounding(AnswerJSON(answer_markdown="", claims=[on_v1]), evidence)[0] == 0.0
+
+
+# --- review of 85d460f..bb48471 (merged as 9c874fa) ----------------------------------------------------------------
+
+def test_r12_1_one_rule_for_the_planner_model(monkeypatch):
+    from agent.llm import DEFAULT_ROUTE_MODEL, llm_from_env
+    monkeypatch.delenv("LLM_ROUTE_MODEL", raising=False)
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.portkey.ai/v1")
+    assert llm_from_env(route_model="openai/gpt-oss-20b").route_model is None      # app.yaml: Groq hosts only
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.groq.com.example.org/v1")       # a host test, not a substring
+    assert llm_from_env().route_model is None
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
+    assert llm_from_env().route_model == DEFAULT_ROUTE_MODEL
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.portkey.ai/v1")
+    monkeypatch.setenv("LLM_ROUTE_MODEL", "@groq/openai/gpt-oss-20b")                # explicit: any provider
+    assert llm_from_env().route_model == "@groq/openai/gpt-oss-20b"
+
+
+def test_r12_2_the_gate_follows_the_reranker(monkeypatch):
+    from agent.config import AgentConfig
+    monkeypatch.delenv("AGENT_RELEVANCE_MIN", raising=False)
+    monkeypatch.setenv("AGENT_RERANK_MODEL", "ms-marco-TinyBERT-L-2-v2")
+    assert AgentConfig().obs_relevance_min == 0.002
+    monkeypatch.setenv("AGENT_RERANK_MODEL", "some-new-model")
+    assert AgentConfig().obs_relevance_min == 0.3                                    # unmeasured: the design value
+    monkeypatch.setenv("AGENT_RELEVANCE_MIN", "0.05")
+    assert AgentConfig().obs_relevance_min == 0.05
+
+
+def test_r12_4_small_talk_check_is_linear():
+    import time
+    from agent.router import is_small_talk
+    started = time.perf_counter()
+    assert not is_small_talk("hi   " * 2000 + "hiX")
+    assert time.perf_counter() - started < 0.5
+    assert is_small_talk("Hi, how are you?") and not is_small_talk("thanks, what about Q2?")
+
+
+def test_r12_5_two_threads_never_share_a_ranker(monkeypatch):
+    import sys
+    import threading
+    import types
+
+    from agent.retrieval import FlashRankReranker
+    busy, clashes = set(), []
+
+    class Ranker:
+        def __init__(self, **kw):
+            pass
+
+        def rerank(self, request):
+            if id(self) in busy:
+                clashes.append(1)
+            busy.add(id(self))
+            threading.Event().wait(0.02)
+            busy.discard(id(self))
+            return [{"id": 0, "score": 0.5}]
+    monkeypatch.setitem(sys.modules, "flashrank", types.SimpleNamespace(Ranker=Ranker, RerankRequest=lambda **kw: kw))
+    reranker = FlashRankReranker(workers=2)
+    threads = [threading.Thread(target=reranker.score, args=("q", ["t"])) for _ in range(6)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert clashes == []
+
+
+def test_r12_6_a_summary_that_is_not_an_object_is_skipped(tmp_path):
+    import json
+
+    from agent.eval_store import _write_files
+    (tmp_path / "eval_summary_A.json").write_text("[]", encoding="utf-8")
+    run = {"results": [], "summary": {"cases_total": 0, "passed": 0}}
+    _write_files(tmp_path, "B", run, [])                     # must not raise
+    assert json.loads((tmp_path / "eval_summary_B.json").read_text(encoding="utf-8"))["case_ids"] == []
+    assert not (tmp_path / "eval_comparison.csv").exists()
+
+
+def test_r12_7_stems_and_prompt_version():
+    from agent.answer import ANSWER_PROMPT_VERSION
+    from agent.validate import stem
+    assert [stem(w) for w in ("plus", "thus", "axis")] == ["plus", "thus", "axis"]
+    assert stem("kpis") == stem("kpi") and stem("statuses") == stem("status")
+    assert ANSWER_PROMPT_VERSION == "answer-v2.1"

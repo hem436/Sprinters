@@ -10,6 +10,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from agent.types import LLMReply
@@ -149,12 +150,13 @@ def _retry_after(error: urllib.error.HTTPError, body: str) -> float | None:
 def llm_from_env(route_model: str | None = None) -> OpenAICompatibleLLM:
     """Build the client from environment variables (names in model/.env.example). Keys never live in code.
 
-    The planner model: LLM_ROUTE_MODEL if set, else the caller's value (the back end passes app.yaml
-    llm.route_model; set it to null for a provider without that model). The built-in DEFAULT_ROUTE_MODEL is a Groq
-    model name, so it is used only when the base URL is Groq's (review #25, two rounds). A route model the provider
-    does not have fails fast (404) and the next model is tried."""
+    The planner model (review #25, three rounds; one rule): LLM_ROUTE_MODEL is used on any provider, because the
+    person who sets it knows the provider (for Portkey, set it to a model the gateway serves). The caller's value
+    (app.yaml llm.route_model) and the built-in DEFAULT_ROUTE_MODEL are Groq model names, so they are used only when
+    the base URL's host is Groq's. Otherwise the planner uses the normal model list."""
     base_url = os.getenv("LLM_BASE_URL", GROQ_URL)
-    on_groq = "groq.com" in base_url
+    host = urllib.parse.urlparse(base_url).hostname or ""
+    on_groq = host == "groq.com" or host.endswith(".groq.com")
     headers = {}
     if os.getenv("PORTKEY_API_KEY"):
         headers["x-portkey-api-key"] = os.environ["PORTKEY_API_KEY"]
@@ -168,5 +170,5 @@ def llm_from_env(route_model: str | None = None) -> OpenAICompatibleLLM:
         extra_headers=headers,
         # comma list, for example "qwen/qwen3.8-27b,openai/gpt-oss-safeguard-20b": more models, more per-minute room
         more_models=tuple(m.strip() for m in os.getenv("LLM_MORE_MODELS", "").split(",") if m.strip()),
-        route_model=os.getenv("LLM_ROUTE_MODEL") or route_model or (DEFAULT_ROUTE_MODEL if on_groq else None),
+        route_model=os.getenv("LLM_ROUTE_MODEL") or ((route_model or DEFAULT_ROUTE_MODEL) if on_groq else None),
     )

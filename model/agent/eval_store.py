@@ -161,6 +161,9 @@ def _write_files(out_dir: Path, config_id: str, run: dict, case_ids: list[str]) 
     if not all(p.exists() for p in paths):
         return
     a, b = (json.loads(p.read_text(encoding="utf-8")) for p in paths)
+    if not (isinstance(a, dict) and isinstance(b, dict)):          # [] or null left by something else (review #25)
+        log.warning("eval_comparison.csv not written: a summary file is not a JSON object")
+        return
     if a.get("case_ids") != b.get("case_ids"):
         log.warning("eval_comparison.csv not written: A and B ran on different case sets")
         return
