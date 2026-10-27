@@ -44,10 +44,13 @@ return response.model_dump()                   # the body of POST /query (contra
 
 Your `run_tool(name, args)` must return `agent.types.ToolResult` with a status from contract 13 section 5 and a
 `summary` sentence that holds the exact numbers. `list_tools()` returns name, description and argument schema only.
-The recorder gets `stage`, `hits`, `llm_call`, `tool_call`, `citations` and, once at the end, `finish(response, details)`;
-`details` has `question_masked`, `normalized_query`, `route_reason`, `context_turns`, `grounding_detail`,
-`safety_flags`, `conflicts`, `conflict_not_shown` and the outcome `facts`. Cost: price the `LLMReply` rows you get in
-`llm_call` (tokens in, out, cached; `usage_source`).
+
+The agent calls your `QueryRecorder` exactly as written in `backend/app/observability/recorder.py` (contract 11
+section 3): `stage`, `hits` (rows with chunk id, rank, score, document and page), `llm_call` (provider usage, or
+`estimate=` when the provider sent none), `tool_call`, `citations`, `context_turns`, then `finish(...)` once. It reads
+`cost_usd` and `cost_estimated` from your `FinishResult` and puts them in the response. All translation is in
+`agent/recording.py`. `tests/test_integration_recorder.py` runs the agent against your real recorder whenever
+`backend/` is next to `model/` (on `main`), so a change on either side that breaks the other fails a test.
 
 ## For Myank (extraction): what search must provide
 
@@ -68,6 +71,20 @@ config decides the model there). Check the model names on the provider's list on
 - A greeting gets reason code `OK_SMALLTALK` (added to contract 11's list: small talk has no evidence to cite).
 - A conflict counts only when the answer shows both versions; if code found one the answer hid, `conflict_not_shown`
   goes to the drill-down.
+
+## Open items between the parts
+
+1. **One copy of the outcome rules** (Sinngam and Arka). `backend/app/observability/outcome.py` repeats ours without
+   `OK_SMALLTALK` (CHANGES DC-1), so a greeting is SUCCESS for the user and FAILED on the dashboard. Proposal:
+   `finish()` takes `outcome`, `reason_code` and `confidence` from the agent when given, and uses its own rules only
+   when the agent did not run (a system error before the agent). The integration test marks this as a known failure.
+2. **The API image must contain `model/`** (Sinngam). `docker-compose.yml` builds only `./backend`. Proposal: build
+   context at the repo root, the Dockerfile copies `model/` and installs `model/requirements.txt`, `PYTHONPATH`
+   includes `/app/model`.
+3. **Model names in one place** (Sinngam and Arka). `config/app.yaml` has `llm.route_model` and `llm.answer_model`;
+   `llm_from_env` reads `LLM_MODEL`. Proposal: names from `app.yaml`, keys only in `.env`; add an `agent:` section
+   with the keys of `agent/config.py`.
+4. **Search** (Myank). Nothing to plug in yet; the agent runs on `StubSearch` until then.
 
 ## Next
 

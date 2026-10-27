@@ -65,34 +65,61 @@ class StubTools:
         return self.results.get(name, ToolResult(tool=name, status="NO_TOOL", args=args, message="unknown tool"))
 
 
-class NullRecorder:
-    """Accepts every report and stores it in memory, so tests can look at what the agent recorded."""
+@dataclass
+class StageHandle:
+    detail: dict = field(default_factory=dict)
+    retries: int = 0
 
-    def __init__(self):
+
+@dataclass(frozen=True)
+class FinishResultStub:
+    query_id: str
+    cost_usd: str | None = None
+    cost_estimated: bool = False
+
+
+class NullRecorder:
+    """Same call shapes as Sinngam's QueryRecorder (contract 11 section 3); keeps every call in memory for tests."""
+
+    def __init__(self, cost_usd: str | None = None):
         self.query_id = uuid.uuid4().hex[:12]
-        self.citation_checks: list = []
-        self.finished: tuple | None = None
+        self.cost_usd = cost_usd
         self.stages: list[str] = []
-        self.hit_lists: dict[str, list[Hit]] = {}
-        self.llm_calls: list[tuple[str, LLMReply, str]] = []
-        self.tool_calls: list[ToolResult] = []
+        self.stage_details: dict[str, dict] = {}
+        self.hit_lists: dict[str, list[dict]] = {}
+        self.llm_calls: list[dict] = []
+        self.tool_calls: list[dict] = []
+        self.citation_rows: list[dict] = []
+        self.turns: list = []
+        self.finished: dict | None = None
 
     @contextmanager
-    def stage(self, name: str):
+    def stage(self, name: str, *, retries: int = 0):
         self.stages.append(name)
-        yield
+        handle = StageHandle(retries=retries)
+        yield handle
+        self.stage_details[name] = handle.detail
 
-    def hits(self, list_name: str, hits: list[Hit]) -> None:
-        self.hit_lists[list_name] = hits
+    def hits(self, list_name: str, hits: list[dict]) -> None:
+        self.hit_lists[list_name] = list(hits)
 
-    def llm_call(self, purpose: str, reply: LLMReply, prompt_version: str) -> None:
-        self.llm_calls.append((purpose, reply, prompt_version))
+    def llm_call(self, purpose, model, usage=None, latency_ms=None, prompt_version=None, *, cache_hit=False,
+                 estimate=None) -> None:
+        self.llm_calls.append({"purpose": purpose, "model": model, "usage": usage, "estimate": estimate,
+                               "prompt_version": prompt_version, "cache_hit": cache_hit})
 
-    def tool_call(self, result: ToolResult) -> None:
-        self.tool_calls.append(result)
+    def tool_call(self, tool, args, status, row_count=0, latency_ms=None, *, result_summary=None,
+                  error_category=None, version=None) -> str:
+        self.tool_calls.append({"tool": tool, "args": args, "status": status, "row_count": row_count,
+                                "result_summary": result_summary, "error_category": error_category})
+        return f"T{len(self.tool_calls)}"
 
-    def citations(self, checks: list) -> None:
-        self.citation_checks = checks
+    def citations(self, validated) -> None:
+        self.citation_rows = list(validated)
 
-    def finish(self, response, details: dict) -> None:
-        self.finished = (response, details)
+    def context_turns(self, turns) -> None:
+        self.turns = list(turns)
+
+    def finish(self, answer, route, grounding_score=None, **kwargs) -> FinishResultStub:
+        self.finished = {"answer": answer, "route": route, "grounding_score": grounding_score, **kwargs}
+        return FinishResultStub(self.query_id, self.cost_usd)

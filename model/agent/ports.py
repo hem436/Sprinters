@@ -3,9 +3,9 @@
 Owners (contract 01 section 3): search is Myank's, tools and the recorder are Sinngam's, the LLM client is ours.
 """
 from contextlib import AbstractContextManager
-from typing import Protocol
+from typing import Any, Protocol
 
-from agent.types import Chunk, Hit, LLMReply, QueryResponse, ToolResult
+from agent.types import Chunk, Hit, LLMReply, ToolResult
 
 
 class SearchPort(Protocol):
@@ -41,23 +41,32 @@ class LLMPort(Protocol):
 
 
 class RecorderPort(Protocol):
-    """Sinngam: 11 section 3. The agent reports; the recorder stores. It must never raise into the answer path."""
+    """Sinngam's QueryRecorder (backend/app/observability/recorder.py), call shapes of contract 11 section 3.
 
-    query_id: str          # assigned by the recorder when the query starts (11 section 3)
+    It never raises into the answer path, except from stage(), which re-raises the agent's own exception.
+    agent/recording.py turns agent objects into these calls.
+    """
+
+    query_id: str
 
     def stage(self, name: str) -> AbstractContextManager: ...
 
-    def hits(self, list_name: str, hits: list[Hit]) -> None: ...
+    def hits(self, list_name: str, hits: list[dict]) -> None: ...
 
-    def llm_call(self, purpose: str, reply: LLMReply, prompt_version: str) -> None: ...
+    def llm_call(self, purpose: str, model: str, usage: Any = None, latency_ms: int | None = None,
+                 prompt_version: str | None = None, *, cache_hit: bool = False, estimate: Any = None) -> None: ...
 
-    def tool_call(self, result: ToolResult) -> None: ...
+    def tool_call(self, tool: str, args: dict | None, status: str, row_count: int = 0, latency_ms: int | None = None,
+                  *, result_summary: str | None = None, error_category: str | None = None,
+                  version: Any = None) -> str: ...
 
-    def citations(self, checks: list) -> None:
-        """V1 results: each cited id, valid or not, and why."""
-        ...
+    def citations(self, validated: list[dict]) -> None: ...
 
-    def finish(self, response: QueryResponse, details: dict) -> None:
-        """Called once at the end. details: route reason, normalized query, context turns, grounding detail,
-        safety flags, outcome facts. The recorder writes everything in one transaction."""
+    def context_turns(self, turns: list) -> None: ...
+
+    def finish(self, answer: str | None, route: str | None, grounding_score: float | None = None, *,
+               facts: Any = None, normalized_query: str | None = None, retrieval_relevant: bool | None = None,
+               grounding_detail: Any = None, safety_flags: list[str] = (), error_category: str | None = None,
+               http_status: int = 200) -> Any:
+        """Returns a result with cost_usd and cost_estimated (backend FinishResult)."""
         ...
