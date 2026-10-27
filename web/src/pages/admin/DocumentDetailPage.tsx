@@ -27,7 +27,8 @@ export function DocumentDetailPage() {
   if (isLoading) return <Spinner />
   if (error) return <ErrorBanner error={error} onRetry={() => refetch()} />
   if (!data) return null
-  const r = data.report
+  // The report is null until extraction finishes; show the document with an empty page list meanwhile.
+  const r = data.report ?? { document_id: data.document_id, status: data.status, pages: [], chunks: data.chunks, ocr_cost_usd: data.ocr_cost_usd, duration_ms: 0 }
   const needsReview = r.pages.filter((p) => p.status === 'NEEDS_REVIEW').length
 
   return (
@@ -72,6 +73,7 @@ export function DocumentDetailPage() {
           />
         </Card>
         <Card title="Pages">
+          {data.report ? null : <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">Extraction is still running. The page list appears when it finishes.</p>}
           <p className="mb-3 text-xs text-slate-500">A NEEDS_REVIEW page is not searchable until an admin approves it (contract 10 rule X7).</p>
           <Table head={['Page', 'Class', 'Method', 'Quality', 'Flags', 'Status', 'OCR', '']} empty={r.pages.length === 0}>
             {r.pages.map((p) => (

@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { USE_MOCKS } from '../api'
 import { useAuth } from '../hooks/useAuth'
 import { HealthBadge } from './HealthBadge'
@@ -30,8 +30,9 @@ const ghost =
   'inline-flex min-h-[38px] items-center whitespace-nowrap rounded-full border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
 
 export function Layout() {
-  const { user, logout } = useAuth()
+  const { user, canAdmin, loginEnabled, logout } = useAuth()
   const { pathname } = useLocation()
+  const navigate = useNavigate()
   const admin = isAdminPath(pathname)
 
   return (
@@ -67,7 +68,7 @@ export function Layout() {
               Back to chat
             </NavLink>
           ) : (
-            <NavLink to={user ? '/dashboard' : '/login'} className={ghost}>
+            <NavLink to={canAdmin ? '/dashboard' : '/login'} className={ghost}>
               Admin
             </NavLink>
           )}
@@ -77,11 +78,21 @@ export function Layout() {
         {admin ? (
           <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
             <HealthBadge />
-            {user ? (
-              <button type="button" onClick={logout} className="text-xs text-slate-500 hover:underline">
-                {user} · Log out
-              </button>
-            ) : null}
+            {loginEnabled && user ? <span className="text-xs text-slate-500 dark:text-slate-400">{user}</span> : null}
+            <button
+              type="button"
+              onClick={() => {
+                // Without a login this leaves the admin view; with one it also clears the saved password.
+                logout()
+                navigate('/chat')
+              }}
+              className={`${ghost} gap-1.5`}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+              </svg>
+              Log out
+            </button>
           </div>
         ) : null}
       </header>

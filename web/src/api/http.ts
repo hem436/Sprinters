@@ -1,7 +1,10 @@
 import type { Api } from './api'
 import { ApiError, authHeader, buildUrl, request, toApiError } from './client'
+import { toDocumentDetail, toDocumentRow, toJob, toPageDetail } from './normalize'
 import { createSseParser } from './sse'
 import type { QueryResponse } from './types'
+
+type Raw = Record<string, unknown>
 
 const enc = encodeURIComponent
 
@@ -54,15 +57,15 @@ export const httpApi: Api = {
     for (const [key, value] of Object.entries(meta)) if (value) form.append(key, value)
     return request('POST', '/documents', { form })
   },
-  listDocuments: (f) => request('GET', '/documents', { query: { ...f } }),
-  getDocument: (id) => request('GET', `/documents/${enc(id)}`),
-  getPage: (id, n) => request('GET', `/documents/${enc(id)}/pages/${n}`),
+  listDocuments: async (f) => (await request<Raw[]>('GET', '/documents', { query: { ...f } })).map(toDocumentRow),
+  getDocument: async (id) => toDocumentDetail(await request<Raw>('GET', `/documents/${enc(id)}`)),
+  getPage: async (id, n) => toPageDetail(await request<Raw>('GET', `/documents/${enc(id)}/pages/${n}`)),
   pageImageUrl: (id, n) => buildUrl(`/documents/${enc(id)}/pages/${n}/image`),
-  reviewPage: (id, n, decision, comment) =>
-    request('POST', `/documents/${enc(id)}/pages/${n}/review`, { body: { decision, comment } }),
+  reviewPage: async (id, n, decision, comment) =>
+    toPageDetail(await request<Raw>('POST', `/documents/${enc(id)}/pages/${n}/review`, { body: { decision, comment } })),
   reindexDocument: (id) => request('POST', `/documents/${enc(id)}/reindex`),
   deleteDocument: (id) => request('DELETE', `/documents/${enc(id)}`),
-  listJobs: () => request('GET', '/jobs'),
+  listJobs: async () => (await request<Raw[]>('GET', '/jobs')).map(toJob),
 
   listTables: (id) => request('GET', `/documents/${enc(id)}/tables`),
   reviewTable: (id, decision, comment) => request('POST', `/tables/${enc(id)}/review`, { body: { decision, comment } }),

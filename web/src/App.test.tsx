@@ -26,10 +26,18 @@ describe('every route renders on mock data', () => {
     expect((await screen.findAllByText(text, {}, { timeout: 3000 })).length).toBeGreaterThan(0)
   })
 
-  it('sends a login-less user to the login page for the dashboard', async () => {
+  it('opens admin pages without a login when VITE_ADMIN_LOGIN is off', async () => {
     saveCredentials(null)
     renderWithProviders(<App />, '/dashboard')
-    expect(await screen.findByText('Admin and reviewer login')).toBeInTheDocument()
+    expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
+  })
+
+  it('logs out from an admin page back to the chat and clears the saved login', async () => {
+    renderWithProviders(<App />, '/dashboard')
+    await userEvent.click(screen.getByRole('button', { name: 'Log out' }))
+    expect(await screen.findByText('Ask the knowledge base')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument()
+    expect(sessionStorage.getItem('ka.auth')).toBeNull()
   })
 })
 

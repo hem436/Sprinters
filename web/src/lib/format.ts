@@ -1,9 +1,10 @@
 import type { Money } from '../api/types'
 
 /** Cost is a decimal string from the server. It is shown as given, never through a float sum. */
-export function formatCost(cost: Money | undefined): string {
-  if (cost === null || cost === undefined) return 'price not set'
-  const [whole, frac = ''] = cost.split('.')
+export function formatCost(cost: Money | number | undefined): string {
+  if (cost === null || cost === undefined || cost === '') return 'price not set'
+  const text = typeof cost === 'number' ? cost.toFixed(6) : String(cost)
+  const [whole, frac = ''] = text.split('.')
   return `$${whole}.${frac.padEnd(6, '0').slice(0, 6)}`
 }
 

@@ -7,7 +7,7 @@ const meta = 'inline-flex items-center rounded-full border border-slate-300 px-2
 
 /** Right-hand panel of the chat, like Verba's document view: the passage behind the selected source. */
 export function SourceViewer({ citation, toolResult }: { citation: Citation | null; toolResult?: ToolResult }) {
-  const { user } = useAuth()
+  const { canAdmin } = useAuth()
 
   if (!citation) {
     return (
@@ -95,7 +95,7 @@ export function SourceViewer({ citation, toolResult }: { citation: Citation | nu
         )}
         {citation.method === 'ocr' ? <p className="m-0 text-xs text-slate-500">This text was read from a scanned page.</p> : null}
       </div>
-      {user ? (
+      {canAdmin ? (
         <div className="border-t border-slate-200 px-5 py-3 text-sm dark:border-slate-800">
           <Link to={toAppPath(citation.url)} className="text-indigo-600 hover:underline dark:text-indigo-300">
             Open the page
