@@ -6,7 +6,7 @@ import { api } from '../../api'
 import type { MetricsFilters, MetricsSummary, Outcome } from '../../api/types'
 import { Badge, ErrorBanner, OutcomeBadge, Spinner } from '../../components/ui'
 import { CHART } from '../../lib/chart'
-import { formatCost, formatMs, formatNumber, formatPct, formatTs, isoDay, ratio } from '../../lib/format'
+import { formatCompact, formatCost, formatMs, formatNumber, formatPct, formatTs, isoDay, ratio } from '../../lib/format'
 
 // Admin home, like the wireframe: one time switch, four headline KPIs, six small ones, one chart and the
 // recent queries. Together the tiles are the 10 KPIs of case 8.1. Kept minimal on purpose.
@@ -72,27 +72,47 @@ export function DashboardPage() {
   )
 }
 
-function Big({ label, value, detail, tone }: { label: string; value: ReactNode; detail: ReactNode; tone?: 'good' | 'warn' | 'bad' }) {
+// Values never spill out of a tile: the font steps down on narrow screens, long values are cut with "…", and the
+// full value is in the tooltip. Details are short lines, one fact each.
+
+function Big({ label, value, full, detail, tone }: { label: string; value: string; full?: string; detail: ReactNode; tone?: 'good' | 'warn' | 'bad' }) {
   const dot = tone === 'good' ? 'bg-emerald-500' : tone === 'warn' ? 'bg-amber-500' : tone === 'bad' ? 'bg-rose-500' : null
   return (
-    <div className="card flex flex-col gap-1 !rounded-2xl p-5" data-testid="kpi-tile">
+    <div className="card flex min-w-0 flex-col gap-1.5 !rounded-2xl p-4 sm:p-5" data-testid="kpi-tile">
       <span className="label flex items-center gap-1.5">
-        {dot ? <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden /> : null}
-        {label}
+        {dot ? <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} aria-hidden /> : null}
+        <span className="truncate">{label}</span>
       </span>
-      <strong className="text-3xl font-bold tabular-nums">{value}</strong>
-      <span className="text-xs text-slate-500 dark:text-slate-400">{detail}</span>
+      <strong className="truncate text-2xl font-bold leading-tight tabular-nums xl:text-3xl" title={full ?? value}>
+        {value}
+      </strong>
+      <div className="flex min-w-0 flex-col gap-0.5 text-xs leading-snug text-slate-500 dark:text-slate-400">{detail}</div>
     </div>
   )
 }
 
-function Small({ label, value, detail, title }: { label: string; value: ReactNode; detail: ReactNode; title?: string }) {
+function Small({ label, value, full, lines, title }: { label: string; value: string; full?: string; lines: string[]; title?: string }) {
   return (
-    <div className="flex flex-col gap-0.5 px-4 py-3" title={title} data-testid="kpi-tile">
-      <span className="label">{label}</span>
-      <strong className="text-lg font-semibold tabular-nums">{value}</strong>
-      <span className="text-xs text-slate-500 dark:text-slate-400">{detail}</span>
+    <div className="flex min-w-0 flex-col gap-0.5 px-4 py-3" title={title} data-testid="kpi-tile">
+      <span className="label truncate">{label}</span>
+      <strong className="truncate text-lg font-semibold leading-tight tabular-nums" title={full ?? value}>
+        {value}
+      </strong>
+      {lines.map((line) => (
+        <span key={line} className="truncate text-xs text-slate-500 dark:text-slate-400" title={line}>
+          {line}
+        </span>
+      ))}
     </div>
+  )
+}
+
+function Row({ name, value }: { name: string; value: string }) {
+  return (
+    <span className="flex min-w-0 justify-between gap-2">
+      <span className="truncate">{name}</span>
+      <span className="shrink-0 tabular-nums text-slate-700 dark:text-slate-300">{value}</span>
+    </span>
   )
 }
 
@@ -117,30 +137,62 @@ function Kpis({ m }: { m: MetricsSummary }) {
       <section aria-label="Headline KPIs" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Big
           label="Total queries"
-          value={formatNumber(total)}
-          detail={`${m.outcomes.SUCCESS} success · ${m.outcomes.PARTIAL} partial · ${m.outcomes.FAILED} failed`}
+          value={formatCompact(total)}
+          full={formatNumber(total)}
+          detail={
+            <>
+              <Row name="Success" value={formatCompact(m.outcomes.SUCCESS)} />
+              <Row name="Partial" value={formatCompact(m.outcomes.PARTIAL)} />
+              <Row name="Failed" value={formatCompact(m.outcomes.FAILED)} />
+            </>
+          }
         />
-        <Big label="Success rate" value={formatPct(success)} tone={tone(success, 0.75, 0.5)} detail="Success outcome, not only HTTP 200" />
-        <Big label="Grounding rate" value={formatPct(m.grounding_rate)} tone={tone(m.grounding_rate, 0.85, 0.6)} detail="Answers with grounding ≥ 0.8" />
+        <Big label="Success rate" value={formatPct(success)} tone={tone(success, 0.75, 0.5)} detail={<span>Success outcome, not only HTTP 200</span>} />
+        <Big label="Grounding rate" value={formatPct(m.grounding_rate)} tone={tone(m.grounding_rate, 0.85, 0.6)} detail={<span>Answers with grounding ≥ 0.8</span>} />
         <Big
           label="Latency p95"
           value={formatMs(l.total.p95)}
-          detail={`p50 ${formatMs(l.total.p50)} · retrieval ${formatMs(l.retrieval.p95)} · tool ${formatMs(l.tool.p95)} · LLM ${formatMs(l.llm.p95)}`}
+          detail={
+            <>
+              <Row name="p50 total" value={formatMs(l.total.p50)} />
+              <Row name="Retrieval p95" value={formatMs(l.retrieval.p95)} />
+              <Row name="LLM p95" value={formatMs(l.llm.p95)} />
+              <Row name="Tool p95" value={formatMs(l.tool.p95)} />
+            </>
+          }
         />
       </section>
 
-      <section aria-label="More KPIs" className="card grid grid-cols-2 divide-slate-200 !rounded-2xl sm:grid-cols-3 lg:grid-cols-6 lg:divide-x dark:divide-slate-800">
-        <Small label="Retrieval" value={formatPct(m.retrieval_success_rate)} detail={m.hit_at_5 !== null ? `eval hit@5 ${formatPct(m.hit_at_5)}` : 'relevant evidence'} />
-        <Small label="Citations" value={formatPct(citation)} detail={`${m.citation_support.valid} of ${m.citation_support.total} valid`} />
-        <Small label="Tools" value={formatPct(tool)} detail={`${m.tool_success.ok} of ${m.tool_success.total} calls OK`} />
-        <Small label="Safety" value={formatNumber(safetyTotal)} detail="events" title={safety.map(([f, n]) => `${f}: ${n}`).join('\n') || 'No safety events'} />
+      <section
+        aria-label="More KPIs"
+        className="card grid grid-cols-2 gap-px overflow-hidden !rounded-2xl bg-slate-200 sm:grid-cols-3 lg:grid-cols-6 dark:bg-slate-800 [&>*]:bg-white dark:[&>*]:bg-slate-900"
+      >
+        <Small label="Retrieval" value={formatPct(m.retrieval_success_rate)} lines={[m.hit_at_5 !== null ? `eval hit@5 ${formatPct(m.hit_at_5)}` : 'relevant evidence']} />
+        <Small
+          label="Citations"
+          value={formatPct(citation)}
+          lines={[`${formatCompact(m.citation_support.valid)} of ${formatCompact(m.citation_support.total)} valid`]}
+        />
+        <Small label="Tools" value={formatPct(tool)} lines={[`${formatCompact(m.tool_success.ok)} of ${formatCompact(m.tool_success.total)} OK`]} />
+        <Small
+          label="Safety"
+          value={formatCompact(safetyTotal)}
+          full={formatNumber(safetyTotal)}
+          lines={[safety.length ? `${safety.length} kinds of event` : 'no events']}
+          title={safety.map(([f, n]) => `${f}: ${n}`).join('\n') || 'No safety events'}
+        />
         <Small
           label="Tokens"
-          value={formatNumber(m.usage.tokens_in + m.usage.tokens_out)}
-          detail={`${formatNumber(m.usage.tokens_in)} in · ${formatNumber(m.usage.tokens_out)} out · ${formatCost(m.usage.total_cost_usd)}`}
+          value={formatCompact(m.usage.tokens_in + m.usage.tokens_out)}
+          full={`${formatNumber(m.usage.tokens_in + m.usage.tokens_out)} tokens`}
+          lines={[`${formatCompact(m.usage.tokens_in)} in · ${formatCompact(m.usage.tokens_out)} out`, formatCost(m.usage.total_cost_usd)]}
           title={`Cost ${formatCost(m.usage.total_cost_usd)}, ${formatCost(m.usage.cost_per_query_usd)} per query\n${routeCost}`}
         />
-        <Small label="Feedback" value={formatPct(helpful)} detail={`${m.feedback.helpful} helpful · ${m.feedback.not_helpful} not`} />
+        <Small
+          label="Feedback"
+          value={formatPct(helpful)}
+          lines={[`${formatCompact(m.feedback.helpful)} helpful`, `${formatCompact(m.feedback.not_helpful)} not helpful`]}
+        />
       </section>
 
       <section aria-label="Outcome over time" className="card !rounded-2xl p-4">

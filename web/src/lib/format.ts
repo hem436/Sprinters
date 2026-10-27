@@ -27,6 +27,12 @@ export function formatNumber(n: number): string {
   return new Intl.NumberFormat('en-IN').format(n)
 }
 
+/** Short form for large counts: 950, 12.4K, 1.2M. Use with the full number in a tooltip. */
+export function formatCompact(n: number): string {
+  if (Math.abs(n) < 10_000) return formatNumber(n)
+  return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
+}
+
 /** "2,506 tokens"; with in and out, "2,506 tokens (2,410 in · 96 out)" when `detail` is set. */
 export function formatTokens(tokensIn: number, tokensOut: number, detail = false): string {
   const total = `${formatNumber(tokensIn + tokensOut)} tokens`
