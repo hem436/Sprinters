@@ -10,6 +10,7 @@ const enc = encodeURIComponent
 
 export const httpApi: Api = {
   health: () => request('GET', '/health'),
+  authMe: (creds) => request('GET', '/auth/me', { credentials: creds }),
 
   query: (req, signal) => request('POST', '/query', { body: req, signal }),
 

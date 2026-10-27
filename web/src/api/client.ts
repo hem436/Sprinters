@@ -4,8 +4,8 @@ import type { ApiErrorBody } from './types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
-/** The team decided on no login (issue #48), so admin pages are open. Set VITE_ADMIN_LOGIN=true to ask for one. */
-export const ADMIN_LOGIN = import.meta.env.VITE_ADMIN_LOGIN === 'true'
+/** Sent when an admin call answers 401: the saved login is wrong or the server now asks for one. */
+export const UNAUTHORIZED_EVENT = 'ka:unauthorized'
 
 export class ApiError extends Error {
   readonly status: number
@@ -48,8 +48,8 @@ export function saveCredentials(creds: Credentials | null): void {
   }
 }
 
-export function authHeader(): Record<string, string> {
-  const creds = loadCredentials()
+export function authHeader(given?: Credentials | null): Record<string, string> {
+  const creds = given ?? loadCredentials()
   if (!creds) return {}
   return { Authorization: `Basic ${btoa(`${creds.username}:${creds.password}`)}` }
 }
@@ -72,6 +72,8 @@ interface RequestOptions {
   form?: FormData
   query?: Record<string, string | number | boolean | undefined | null>
   signal?: AbortSignal
+  /** Use these instead of the saved login, for the login check itself. */
+  credentials?: Credentials
 }
 
 export function buildUrl(path: string, query?: RequestOptions['query']): string {
@@ -84,7 +86,7 @@ export function buildUrl(path: string, query?: RequestOptions['query']): string 
 }
 
 export async function request<T>(method: string, path: string, opts: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json', ...authHeader() }
+  const headers: Record<string, string> = { Accept: 'application/json', ...authHeader(opts.credentials) }
   let body: BodyInit | undefined
   if (opts.form) {
     body = opts.form
@@ -101,7 +103,14 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
     throw new ApiError(0, { code: 'NETWORK_ERROR', message: 'The service is not reachable.' })
   }
 
-  if (!res.ok) throw await toApiError(res)
+  if (!res.ok) {
+    const err = await toApiError(res)
+    if (err.status === 401 && !opts.credentials) {
+      saveCredentials(null)
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+    }
+    throw err
+  }
   if (res.status === 204) return undefined as T
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T

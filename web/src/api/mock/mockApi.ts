@@ -1,5 +1,5 @@
 import type { Api } from '../api'
-import { ADMIN_LOGIN, ApiError, loadCredentials } from '../client'
+import { ApiError, loadCredentials, saveCredentials, UNAUTHORIZED_EVENT, type Credentials } from '../client'
 import type {
   ConfigId,
   DrillDown,
@@ -89,8 +89,27 @@ function fail(status: number, code: string, message: string, fields?: { field: s
   throw new ApiError(status, { code, message, fields }, newId('req_'))
 }
 
+// Mock login: user name "admin", password VITE_MOCK_ADMIN_PASSWORD (default "admin"). Empty means no login.
+const MOCK_ADMIN_USER = 'admin'
+const MOCK_ADMIN_PASSWORD = import.meta.env.VITE_MOCK_ADMIN_PASSWORD ?? 'admin'
+
+function checkLogin(creds: Credentials | null): string | null {
+  if (!MOCK_ADMIN_PASSWORD) return null
+  if (!creds || creds.username !== MOCK_ADMIN_USER || creds.password !== MOCK_ADMIN_PASSWORD) {
+    fail(401, 'UNAUTHORIZED', 'Log in as an admin to use this page.')
+  }
+  return creds.username
+}
+
 function requireAuth(): void {
-  if (ADMIN_LOGIN && !loadCredentials()) fail(401, 'UNAUTHORIZED', 'Log in as an admin or reviewer to see this page.')
+  try {
+    checkLogin(loadCredentials())
+  } catch (err) {
+    // Same as the HTTP client: a 401 clears the saved login and tells the app.
+    saveCredentials(null)
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+    throw err
+  }
 }
 
 function isoOffset(d: Date): string {
@@ -453,6 +472,12 @@ function validateQuestion(question: string): void {
 }
 
 export const mockApi: Api = {
+  async authMe(creds) {
+    await wait(80)
+    const username = checkLogin(creds ?? loadCredentials())
+    return { username, login_required: !!MOCK_ADMIN_PASSWORD }
+  },
+
   async health() {
     await wait(80)
     return { status: 'ok', qdrant: true, llm: true, ocr_available: true, reranker: true, db: true }
