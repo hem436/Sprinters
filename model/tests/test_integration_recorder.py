@@ -13,10 +13,11 @@ if not (BACKEND / "app" / "observability" / "recorder.py").exists():
     pytest.skip("backend/ is not in this checkout", allow_module_level=True)
 # appended, not inserted: our own `tests` package must win over backend/tests (review #25)
 sys.path.append(str(BACKEND))
-pytest.importorskip("yaml")
-
-from app.observability import store                    # noqa: E402
-from app.observability.recorder import QueryRecorder   # noqa: E402
+try:
+    from app.observability import store                    # noqa: E402
+    from app.observability.recorder import QueryRecorder   # noqa: E402
+except ImportError as missing:                             # backend/ is here but its requirements are not installed
+    pytest.skip(f"backend requirements not installed ({missing.name})", allow_module_level=True)
 
 from agent.service import Agent                        # noqa: E402
 from agent.stubs import FakeLLM, StubSearch, StubTools  # noqa: E402
