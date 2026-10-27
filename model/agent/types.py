@@ -68,7 +68,7 @@ class RouteDecision:
     standalone_query: str
     tool: str | None = None
     tool_args: dict = field(default_factory=dict)
-    reason: Literal["PLANNER", "RULE_OVERRIDE", "ROUTE_FALLBACK", "RULE_GREETING"] = "PLANNER"
+    reason: Literal["PLANNER", "RULE_OVERRIDE", "ROUTE_FALLBACK", "RULE_GREETING", "ROUTE_NO_TOOL"] = "PLANNER"
 
 
 @dataclass(frozen=True)

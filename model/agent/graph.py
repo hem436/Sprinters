@@ -64,14 +64,14 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
         context = select_context(state.get("history", []), state["cfg"])
         with state["recorder"].stage("plan") as stage:
             try:
-                decision, reply = route_question(state["question"], context, llm, tools)
+                decision, replies = route_question(state["question"], context, llm, tools)
             except LLMError:
                 # 06 AI-4: the planner failed, so answer from the documents with the user's own words
-                decision, reply = RouteDecision("DOCS", state["question"], reason="ROUTE_FALLBACK"), None
+                decision, replies = RouteDecision("DOCS", state["question"], reason="ROUTE_FALLBACK"), []
             _detail(stage, route=decision.route, route_reason=decision.reason, tool=decision.tool)
-        if reply:
+        for reply in replies:
             report_llm(state["recorder"], "route", reply, ROUTE_PROMPT_VERSION)
-        return {"context": context, "route": decision, "replies": [reply] if reply else []}
+        return {"context": context, "route": decision, "replies": replies}
 
     def retrieve_docs(state: AgentState) -> dict:
         query, cfg = state["route"].standalone_query, state["cfg"]
