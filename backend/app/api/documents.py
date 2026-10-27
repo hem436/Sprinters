@@ -15,6 +15,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 from pydantic import BaseModel, Field
 
+from app.api.auth import require_admin
 from app.api.errors import ApiError
 from app.config import Config, get_config
 
@@ -65,7 +66,7 @@ def optional(service, name: str):
 
 # Documents and review -------------------------------------------------------------------------------------------
 
-@router.post("/documents", status_code=202)
+@router.post("/documents", status_code=202, dependencies=[Depends(require_admin)])
 def upload(file: UploadFile = File(...), title: str = Form(...), category: str = Form(...),
            version: str = Form(...), effective_date: str = Form(...), doc_key: str | None = Form(None),
            service=Depends(get_knowledge)) -> dict:
@@ -81,65 +82,65 @@ def upload(file: UploadFile = File(...), title: str = Form(...), category: str =
         os.unlink(tmp.name)                           # the service keeps its own copy
 
 
-@router.get("/documents")
+@router.get("/documents", dependencies=[Depends(require_admin)])
 def list_documents(category: str | None = None, status: str | None = None, service=Depends(get_knowledge)) -> list:
     return call(service.list_documents, category, status)
 
 
-@router.get("/documents/{document_id}")
+@router.get("/documents/{document_id}", dependencies=[Depends(require_admin)])
 def get_document(document_id: str, service=Depends(get_knowledge)) -> dict:
     return call(service.get_document, document_id)
 
 
-@router.get("/documents/{document_id}/pages/{page}")
+@router.get("/documents/{document_id}/pages/{page}", dependencies=[Depends(require_admin)])
 def get_page(document_id: str, page: int, service=Depends(get_knowledge)) -> dict:
     return call(service.get_page, document_id, page)
 
 
-@router.get("/documents/{document_id}/pages/{page}/image")
+@router.get("/documents/{document_id}/pages/{page}/image", dependencies=[Depends(require_admin)])
 def page_image(document_id: str, page: int, service=Depends(get_knowledge)) -> Response:
     return Response(call(service.page_image, document_id, page), media_type="image/png")
 
 
-@router.post("/documents/{document_id}/pages/{page}/review")
+@router.post("/documents/{document_id}/pages/{page}/review", dependencies=[Depends(require_admin)])
 def review_page(document_id: str, page: int, body: Decision, service=Depends(get_knowledge)) -> dict:
     return call(service.review_page, document_id, page, body.decision, "admin", body.comment)
 
 
-@router.post("/documents/{document_id}/reindex", status_code=202)
+@router.post("/documents/{document_id}/reindex", status_code=202, dependencies=[Depends(require_admin)])
 def reindex(document_id: str, service=Depends(get_knowledge)) -> dict:
     return call(service.reindex, document_id)
 
 
-@router.delete("/documents/{document_id}", status_code=204)
+@router.delete("/documents/{document_id}", status_code=204, dependencies=[Depends(require_admin)])
 def delete(document_id: str, service=Depends(get_knowledge)) -> Response:
     call(service.delete_document, document_id)
     return Response(status_code=204)
 
 
-@router.get("/jobs")
+@router.get("/jobs", dependencies=[Depends(require_admin)])
 def list_jobs(service=Depends(get_knowledge)) -> list:
     return call(service.list_jobs)
 
 
 # Financial tables and the metric map (contract 14; extraction WP-EX6) ---------------------------------------------
 
-@router.get("/documents/{document_id}/tables")
+@router.get("/documents/{document_id}/tables", dependencies=[Depends(require_admin)])
 def list_tables(document_id: str, service=Depends(get_knowledge)) -> list:
     return call(optional(service, "list_tables"), document_id)
 
 
-@router.post("/tables/{table_id}/review")
+@router.post("/tables/{table_id}/review", dependencies=[Depends(require_admin)])
 def review_table(table_id: str, body: Decision, service=Depends(get_knowledge)) -> dict:
     return call(optional(service, "review_table"), table_id, body.decision, "admin", body.comment)
 
 
-@router.get("/metric-map")
+@router.get("/metric-map", dependencies=[Depends(require_admin)])
 def list_metric_map(pending: bool = False, service=Depends(get_knowledge)) -> list:
     return call(optional(service, "list_metric_map"), pending)
 
 
-@router.post("/metric-map/approve")
+@router.post("/metric-map/approve", dependencies=[Depends(require_admin)])
 def approve_mapping(body: Mapping, service=Depends(get_knowledge)) -> dict:
     return call(optional(service, "approve_mapping"), body.line_label, body.metric, "admin")
 

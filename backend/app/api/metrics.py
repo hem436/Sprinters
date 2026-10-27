@@ -15,6 +15,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
+from app.api.auth import require_admin
 from app.api.errors import ApiError
 from app.config import Config, get_config
 from app.observability import metrics, store
@@ -70,19 +71,19 @@ def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-@router.get("/metrics/summary")
+@router.get("/metrics/summary", dependencies=[Depends(require_admin)])
 def metrics_summary(filters: Filters = Depends(), config: Config = Depends(get_config)) -> dict:
     return metrics.summary(_db(config), filters.as_dict(), config.get("obs.grounding_min", 0.8),
                            _document_titles(config))
 
 
-@router.get("/queries")
+@router.get("/queries", dependencies=[Depends(require_admin)])
 def list_queries(filters: Filters = Depends(), page: int = Query(1, ge=1),
                  page_size: int = Query(20, ge=1, le=100), config: Config = Depends(get_config)) -> dict:
     return metrics.list_queries(_db(config), filters.as_dict(), page, page_size)
 
 
-@router.get("/queries/{query_id}")
+@router.get("/queries/{query_id}", dependencies=[Depends(require_admin)])
 def get_query(query_id: str, config: Config = Depends(get_config)) -> dict:
     found = metrics.drill_down(_db(config), query_id)
     if found is None:
@@ -106,7 +107,7 @@ def feedback(body: FeedbackRequest, config: Config = Depends(get_config)) -> dic
     return {"query_id": body.query_id, "helpful": body.helpful, "comment": body.comment}
 
 
-@router.post("/queries/{query_id}/review", status_code=201)
+@router.post("/queries/{query_id}/review", status_code=201, dependencies=[Depends(require_admin)])
 def review_query(query_id: str, body: ReviewRequest, config: Config = Depends(get_config)) -> dict:
     conn = store.connect(_db(config))
     try:
@@ -129,7 +130,7 @@ def _run_row(conn: sqlite3.Connection, r: sqlite3.Row) -> dict:
             "cases_total": (summary or {}).get("cases_total", done), "summary": summary}
 
 
-@router.get("/eval/runs")
+@router.get("/eval/runs", dependencies=[Depends(require_admin)])
 def list_eval_runs(config: Config = Depends(get_config)) -> list[dict]:
     conn = store.connect(_db(config))
     try:
@@ -138,7 +139,7 @@ def list_eval_runs(config: Config = Depends(get_config)) -> list[dict]:
         conn.close()
 
 
-@router.get("/eval/runs/{run_id}")
+@router.get("/eval/runs/{run_id}", dependencies=[Depends(require_admin)])
 def get_eval_run(run_id: str, config: Config = Depends(get_config)) -> dict:
     conn = store.connect(_db(config))
     try:
@@ -155,6 +156,6 @@ def get_eval_run(run_id: str, config: Config = Depends(get_config)) -> dict:
         conn.close()
 
 
-@router.post("/eval/runs", status_code=202)
+@router.post("/eval/runs", status_code=202, dependencies=[Depends(require_admin)])
 def start_eval_run() -> dict:
     raise ApiError(501, "NOT_IMPLEMENTED", "The evaluation runner (Arka, WP-AG6) is not connected yet.")
