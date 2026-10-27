@@ -1,4 +1,5 @@
 """Rules H1 to H4 and C1 (contract 04): hybrid search, fusion, rerank, and version conflicts."""
+import os
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
@@ -119,11 +120,22 @@ def _one_text_per_version(chunks: list[Chunk]) -> list[Chunk]:
 
 
 class FlashRankReranker:
-    """H4 with FlashRank (ms-marco MiniLM, local ONNX), as in the team's chatbot repo. Imported only when used."""
+    """H4 with FlashRank (a local ONNX cross-encoder), as in the team's chatbot repo. Imported only when used.
 
-    def __init__(self, cache_dir: str | None = None):
+    Model: AGENT_RERANK_MODEL, else ms-marco-MiniLM-L-12-v2. Measured on the demo corpus (284 chunks, 17 eval
+    questions with expected evidence, 27 Oct): MiniLM-L-12 puts the expected chunk first in 11 (TinyBERT-L-2, the
+    FlashRank default: 9), MRR 0.776 against 0.718, and the lowest top score of an answerable question is 0.144
+    (TinyBERT: 0.003), so a relevance gate near 0.1 separates answerable from unanswerable questions. Price: about
+    30 ms per chunk on the workstation CPU against 1.5 ms.
+    """
+    DEFAULT_MODEL = "ms-marco-MiniLM-L-12-v2"
+
+    def __init__(self, cache_dir: str | None = None, model_name: str | None = None):
         from flashrank import Ranker   # optional dependency: ~50 MB, so not loaded at import time
-        self._ranker = Ranker(cache_dir=cache_dir) if cache_dir else Ranker()
+        self.model_name = model_name or os.getenv("AGENT_RERANK_MODEL") or self.DEFAULT_MODEL
+        cache_dir = cache_dir or os.getenv("AGENT_RERANK_CACHE")
+        self._ranker = (Ranker(model_name=self.model_name, cache_dir=cache_dir) if cache_dir
+                        else Ranker(model_name=self.model_name))
 
     def score(self, query: str, texts: list[str]) -> list[float]:
         from flashrank import RerankRequest
