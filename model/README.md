@@ -80,6 +80,26 @@ config decides the model there). Check the model names on the provider's list on
 - A conflict counts only when the answer shows both versions; if code found one the answer hid, `conflict_not_shown`
   goes to the drill-down.
 
+## Evaluation (WP-AG6)
+
+`evals/eval_set.jsonl`: 28 cases in 12 scenarios, every value from `evals/facts.md` (contract 11 section 7 format,
+plus `expected_tool`, `simulate_tool_failure`, `regression`). `agent/evaluation.py` runs each case through
+`Agent.answer` with the real recorder, scores it (hit@5, recall@5, MRR@5 on the final top 5; route; behaviour;
+answer criteria; citation validity; grounding; latency; tokens; cost) and returns one row per case in the web app's
+`EvalCaseResult` shape plus a `summary`. RAGAS faithfulness and correctness stay empty until a judge key is set.
+
+Run everything on the workstation (needs `.env` keys, the ingested corpus and `business.db`):
+
+```bash
+cd model && python -m agent.eval_cli --configs A B        # writes output/eval_results_A.csv, _B.csv, eval_comparison.csv
+python -m agent.eval_cli --configs B --only D01 S01       # a quick subset
+```
+
+For Sinngam's `POST /eval/runs`: insert the `eval_run` row, then in a background thread call
+`run_eval(agent, agent.search, load_cases(path), config_id, QueryRecorder.start, tools=agent.tools,
+on_case=<insert one eval_result row: case_id, query_id, scenario, passed, measures = the rest of the row>, run_id=run_id)`
+and store the returned `summary` (it has `cases_total`) when it ends.
+
 ## Open items between the parts
 
 1. **One copy of the outcome rules**: done. `finish()` receives the agent's `outcome`, `reason_code` and `confidence`

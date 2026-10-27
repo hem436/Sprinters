@@ -54,6 +54,7 @@ class Agent:
                  cfg: AgentConfig | None = None, sessions: SessionStore | None = None):
         self.cfg = cfg or AgentConfig()
         self.sessions = sessions or SessionStore()
+        self.search, self.tools = search, tools          # the eval runner reads chunks and switches tool failure
         self._graph = build_graph(search, tools, llm, reranker)
 
     def answer(self, question: str, session_id: str, recorder: RecorderPort, filters: dict | None = None,
