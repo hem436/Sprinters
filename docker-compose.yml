@@ -2,7 +2,9 @@
 # The web service waits for Hemant's web/ folder; start it with: docker compose --profile web up
 services:
   api:
-    build: ./backend
+    build:
+      context: .            # repo root: the image also holds the agent (model/)
+      dockerfile: backend/Dockerfile
     env_file:
       - path: .env
         required: false

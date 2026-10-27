@@ -1,0 +1,14 @@
+# Build context is the repo root; send only what the api image copies.
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+.git
+.env
+backend/data
+backend/tests
+model/tests
+output
+team
+web

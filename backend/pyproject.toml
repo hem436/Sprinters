@@ -1,7 +1,7 @@
 # Tool settings only; dependencies are pinned in requirements.txt (contract 07).
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "../model"]   # the agent package, so tests use its real types
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 120
@@ -13,7 +13,3 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's dependency idiom.
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.File", "fastapi.Form"]
-
-[tool.ruff.lint.isort]
-known-first-party = ["app"]
-known-third-party = ["agent"]

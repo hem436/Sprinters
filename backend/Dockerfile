@@ -1,13 +1,17 @@
+# Built from the repo root (docker-compose.yml), because POST /query runs the agent in model/.
 FROM python:3.12-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app:/app/model
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/requirements.txt requirements.txt
+COPY model/requirements.txt model/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -r model/requirements.txt
 
-COPY app ./app
-COPY config ./config
+COPY backend/app ./app
+COPY backend/config ./config
+COPY model/agent ./model/agent
+COPY model/prompts ./model/prompts
 
 RUN useradd --create-home --uid 1000 appuser && mkdir -p /app/data && chown appuser /app/data
 USER appuser

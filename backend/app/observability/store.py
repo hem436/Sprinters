@@ -41,8 +41,7 @@ CREATE TABLE IF NOT EXISTS query_event (
     http_status        INTEGER,
     grounding_detail   TEXT,
     error_category     TEXT,
-    correlation_id     TEXT,
-    agent_detail       TEXT              -- JSON from the agent: route_reason, conflicts, conflict_not_shown, facts
+    correlation_id     TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_query_event_ts ON query_event (ts);
 CREATE INDEX IF NOT EXISTS ix_query_event_outcome ON query_event (outcome, ts);
@@ -74,7 +73,7 @@ CREATE TABLE IF NOT EXISTS llm_call (
     call_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     query_id       TEXT,
     document_id    TEXT,
-    purpose        TEXT NOT NULL CHECK (purpose IN ('route','answer','repair','judge','ocr','embed')),
+    purpose        TEXT NOT NULL CHECK (purpose IN ('route','answer','judge','ocr','embed')),
     model          TEXT NOT NULL,
     prompt_version TEXT,
     tokens_in      INTEGER NOT NULL DEFAULT 0,
