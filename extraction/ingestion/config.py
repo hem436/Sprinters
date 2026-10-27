@@ -32,8 +32,7 @@ _KEYS = {
     "ocr.timeout_s": "ocr_timeout_s",
     "embed.timeout_s": "embed_timeout_s",
     "ocr.attempts": "ocr_attempts",
-    "ocr.price_in_per_mtok_usd": "ocr_price_in_per_mtok_usd",
-    "ocr.price_out_per_mtok_usd": "ocr_price_out_per_mtok_usd",
+    "ocr.price_files": "price_files",
     "fin.review_unmapped": "fin_review_unmapped",
     "fin.vision_tables": "fin_vision_tables",
     "fin.mapper_model": "fin_mapper_model",
@@ -83,9 +82,11 @@ class ExtractConfig:
     ocr_max_edge_px: int = 1600
     ocr_prompt_version: str = "ocr-v1"
     ocr_attempts: int = 3
-    # Prices for the ExtractionReport cost. None = "price not set": the cost stays empty, never 0 (contract 11 s.4).
-    ocr_price_in_per_mtok_usd: Decimal | None = None
-    ocr_price_out_per_mtok_usd: Decimal | None = None
+    # Prices per model for the ExtractionReport cost, USD per 1M tokens: {model: (in, out)}. A missing model or a
+    # null price = "price not set": the cost stays empty, never 0 (contract 11 section 4). load_config fills it from
+    # the price files: the shared backend/config/model_prices.yaml, then extraction/config/model_prices.yaml.
+    model_prices: dict = field(default_factory=dict)
+    price_files: tuple[str, ...] = ("../backend/config/model_prices.yaml", "config/model_prices.yaml")
 
     # contract 14 financial facts
     fin_review_unmapped: bool = True          # F6 / diagram: a table with an unmapped label waits for review
@@ -143,8 +144,8 @@ class ExtractConfig:
                 value = tuple(str(v).lower().lstrip(".") for v in value)
             elif name == "ocr_fallback_models":
                 value = tuple(value or ())
-            elif name.startswith("ocr_price") and value is not None:
-                value = Decimal(str(value))
+            elif name == "price_files":
+                value = tuple(value or ())
             elif name == "embed_dim":
                 value = int(value) if value is not None else None
             elif kinds[name] in (int, "int"):
@@ -172,4 +173,22 @@ def load_config() -> ExtractConfig:
         sections = {"extract", "clean", "ocr", "chunk", "embed", "index", "fin"}
         ours = {k: v for k, v in data.items() if k.split(".")[0] in sections}
         cfg = ExtractConfig.from_dict(ours, cfg)
-    return cfg
+    return replace(cfg, model_prices=load_prices(cfg.price_files))
+
+
+def load_prices(files) -> dict:
+    """{model: (in, out)} as Decimals or None, from the price files; a later file wins. Paths are relative to the
+    extraction folder; a missing file is skipped."""
+    import yaml
+
+    base = Path(__file__).resolve().parents[1]
+    prices: dict = {}
+    for name in files:
+        path = Path(name) if Path(name).is_absolute() else base / name
+        if not path.exists():
+            continue
+        for row in (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("prices", []):
+            def dec(v):
+                return Decimal(str(v)) if v is not None else None
+            prices[row["model"]] = (dec(row.get("usd_per_1m_in")), dec(row.get("usd_per_1m_out")))
+    return prices

@@ -11,7 +11,9 @@ from the environment; tests build their own with fakes.
 """
 import json
 import logging
+import os
 import shutil
+import sqlite3
 import threading
 from pathlib import Path
 
@@ -74,11 +76,22 @@ class Knowledge:
         pending = [d for d in self.store.list_documents() if d["status"] in ("QUEUED", "EXTRACTING")]
         for d in pending:
             self.store.update_document(d["document_id"], status="QUEUED")
-            self._queue(d["document_id"], d["file_name"])
+            self._queue(d["document_id"], d["file_name"], d["title"])
         return len(pending)
 
-    def _queue(self, document_id: str, file_name: str) -> str:
-        return self.jobs.submit(document_id, file_name, lambda progress: run_document(self, document_id, progress))
+    def _queue(self, document_id: str, file_name: str, title: str = "") -> str:
+        return self.jobs.submit(document_id, file_name, lambda progress: run_document(self, document_id, progress),
+                                title=title)
+
+    def _free_id(self, content_hash: str) -> str:
+        """`doc_` + 8 hex of the hash (contract 02); longer only if another file already has that prefix, so a
+        prefix collision can never overwrite another document's row or file (review B6)."""
+        for n in (8, 12, 16, 64):
+            candidate = "doc_" + content_hash[:n]
+            row = self.store.get_document(candidate)
+            if row is None or row["content_hash"] == content_hash:
+                return candidate
+        raise RuntimeError("no free document id")
 
     # ---- X1 and upload ------------------------------------------------------------------------------------------
     def submit_document(self, file_path: str | Path, meta: dict, file_name: str | None = None,
@@ -91,20 +104,29 @@ class Knowledge:
         if existing:
             raise errors.duplicate_document(existing["document_id"], existing["title"])
 
-        document_id = "doc_" + valid.content_hash[:8]
+        document_id = self._free_id(valid.content_hash)
         self.cfg.files_dir.mkdir(parents=True, exist_ok=True)
         stored = self.cfg.files_dir / f"{document_id}.{valid.file_type}"
-        shutil.copyfile(file_path, stored)
         meta = dict(valid.meta)
         extra = meta.pop("extra", None)
-        self.store.insert_document({
-            "document_id": document_id, **meta, "extra_json": json.dumps(extra) if extra else None,
-            "file_name": file_name, "file_type": valid.file_type,
-            "size_bytes": valid.size_bytes, "content_hash": valid.content_hash, "status": "QUEUED",
-            "page_count": valid.page_count or None, "uploaded_by": uploaded_by, "uploaded_at": now(),
-            "stored_path": str(stored),
-        })
-        job_id = self._queue(document_id, file_name)
+        try:
+            # the row first: UNIQUE(content_hash) decides a race between two uploads of the same file (review B6)
+            self.store.insert_document({
+                "document_id": document_id, **meta, "extra_json": json.dumps(extra) if extra else None,
+                "file_name": file_name, "file_type": valid.file_type,
+                "size_bytes": valid.size_bytes, "content_hash": valid.content_hash, "status": "QUEUED",
+                "page_count": valid.page_count or None, "uploaded_by": uploaded_by, "uploaded_at": now(),
+                "stored_path": str(stored),
+            })
+        except sqlite3.IntegrityError as e:
+            existing = self.store.find_by_hash(valid.content_hash)
+            if existing:
+                raise errors.duplicate_document(existing["document_id"], existing["title"]) from e
+            raise
+        tmp = stored.with_suffix(stored.suffix + ".part")      # then the file, written whole or not at all
+        shutil.copyfile(file_path, tmp)
+        os.replace(tmp, stored)
+        job_id = self._queue(document_id, file_name, meta["title"])
         status = self.store.get_document(document_id)["status"]
         return {"document_id": document_id, "job_id": job_id, "status": "QUEUED" if not self.jobs.inline else status}
 
@@ -117,6 +139,7 @@ class Knowledge:
         out = []
         for d in self.store.list_documents(category, status):
             row = {k: d[k] for k in keys}
+            row["pages"], row["chunks"] = d["page_count"], d["chunk_count"]    # names the web app reads (issue 48)
             row["pages_need_review"] = sum(1 for p in self.store.get_pages(d["document_id"])
                                            if p["status"] == "NEEDS_REVIEW")
             out.append(row)
@@ -217,7 +240,7 @@ class Knowledge:
         if d["status"] in ("QUEUED", "EXTRACTING", "DELETED"):
             raise errors.illegal_move(f"A {d['status']} document cannot be re-indexed.")
         self.store.update_document(document_id, status="QUEUED")
-        job_id = self._queue(document_id, d["file_name"])
+        job_id = self._queue(document_id, d["file_name"], d["title"])
         return {"document_id": document_id, "job_id": job_id, "status": "QUEUED"}
 
     def delete_document(self, document_id: str) -> None:
@@ -281,12 +304,18 @@ def build(cfg: ExtractConfig | None = None, inline: bool = False) -> Knowledge:
 
 
 def get_default() -> Knowledge:
+    """The instance the module functions use. It does not restart waiting jobs: only the API process should do
+    that, once, with `resume_pending()` at start-up; otherwise the agent's process would OCR them too (review D5)."""
     global _default
     with _default_lock:
         if _default is None:
             _default = build()
-            _default.resume_pending()
         return _default
+
+
+def resume_pending() -> int:
+    """Call once when the API starts: queue again the documents a restart left QUEUED or EXTRACTING."""
+    return get_default().resume_pending()
 
 
 def set_default(k: Knowledge | None) -> None:

@@ -89,8 +89,18 @@ def test_ocr_failure_keeps_usage(monkeypatch):
 
 
 def test_cost_is_decimal_when_price_set():
-    cfg = ExtractConfig(ocr_price_in_per_mtok_usd=Decimal("0.30"), ocr_price_out_per_mtok_usd=Decimal("2.50"))
-    assert ocr_cost(cfg, 1290, 410) == "0.001412"
+    cfg = ExtractConfig(model_prices={"gemini-3.5-flash-lite": (Decimal("0.30"), Decimal("2.50")),
+                                      "gemini-3.5-flash": (None, None)})
+    assert ocr_cost(cfg, 1290, 410, "gemini-3.5-flash-lite") == "0.001412"
+    assert ocr_cost(cfg, 1290, 410, "gemini-3.5-flash") is None            # listed without a price
+    assert ocr_cost(cfg, 1290, 410, "unknown-model") is None
+
+
+def test_price_files_are_read():
+    from ingestion.config import load_prices
+    prices = load_prices(("config/model_prices.yaml",))
+    assert prices["gemini-3.5-flash-lite"] == (Decimal("0.30"), Decimal("2.50"))
+    assert prices["gemini-3.5-flash"] == (None, None)
 
 
 def test_phone_photo_rotation_fixed(tmp_path):

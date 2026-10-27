@@ -93,12 +93,12 @@ def render_pdf_page(path: str, page_no: int, max_edge: int) -> Image.Image:
 
 # ---- cost ----------------------------------------------------------------------------------------------------------
 
-def ocr_cost(cfg: ExtractConfig, tokens_in: int, tokens_out: int) -> str | None:
-    """USD as a Decimal string; None when no price is set (shown as "price not set", never as 0)."""
-    if cfg.ocr_price_in_per_mtok_usd is None or cfg.ocr_price_out_per_mtok_usd is None:
+def ocr_cost(cfg: ExtractConfig, tokens_in: int, tokens_out: int, model: str) -> str | None:
+    """USD as a Decimal string for the model that answered; None when its price is not set (never 0)."""
+    price_in, price_out = cfg.model_prices.get(model, (None, None))
+    if price_in is None or price_out is None:
         return None
-    cost = (Decimal(tokens_in) * cfg.ocr_price_in_per_mtok_usd
-            + Decimal(tokens_out) * cfg.ocr_price_out_per_mtok_usd) / Decimal(1_000_000)
+    cost = (Decimal(tokens_in) * price_in + Decimal(tokens_out) * price_out) / Decimal(1_000_000)
     return str(cost.quantize(Decimal("0.000001")))
 
 
@@ -168,7 +168,7 @@ class GeminiJSON:
                 _add_usage(usage, resp)
                 parsed = resp.parsed if isinstance(resp.parsed, schema) else schema.model_validate_json(resp.text)
                 usage.model = model
-                usage.cost_usd = ocr_cost(self.cfg, usage.input_tokens, usage.output_tokens)
+                usage.cost_usd = ocr_cost(self.cfg, usage.input_tokens, usage.output_tokens, model)
                 return parsed, usage
             except Exception as e:  # SDK errors, invalid JSON, schema errors
                 usage.latency_ms += int((time.monotonic() - started) * 1000)
@@ -194,7 +194,7 @@ class GeminiJSON:
                     continue
                 break
         usage.model = model
-        usage.cost_usd = ocr_cost(self.cfg, usage.input_tokens, usage.output_tokens)
+        usage.cost_usd = ocr_cost(self.cfg, usage.input_tokens, usage.output_tokens, model)
         raise GeminiFailed(f"failed after {usage.attempts} attempt(s): {str(last_error)[:200]}", usage)
 
 

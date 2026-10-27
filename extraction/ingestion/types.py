@@ -36,6 +36,7 @@ class Chunk:
     method: str
     text: str
     injection_suspect: bool = False
+    current: bool | None = None     # true when this is the current version of its doc_key (contract 03, issue 48)
 
 
 @dataclass

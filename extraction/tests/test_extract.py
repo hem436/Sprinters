@@ -90,7 +90,7 @@ def test_heading_with_changing_number_is_not_a_header(tmp_path):
 def test_two_column_page_reads_left_then_right(tmp_path):
     pages = extract_pdf(files.two_column_pdf(tmp_path / "c.pdf"), CFG, FakeOCR())
     text = pages[0].text
-    assert "TWO_COLUMN" in pages[0].flags
+    assert pages[0].signals["two_column"] and "TWO_COLUMN" not in pages[0].flags
     assert text.index("Left column sentence number 29") < text.index("Right column sentence number 00")
 
 

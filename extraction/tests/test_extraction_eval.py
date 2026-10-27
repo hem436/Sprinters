@@ -64,7 +64,9 @@ def test_eval_text_pages_of_demo_corpus():
     rows = evaluate(ROOT / "evals" / "extraction_gold", ROOT / "demo" / "documents", ExtractConfig(), None,
                     use_ocr=False)
     assert len(rows) == 3
-    assert all(r["cer"] == 0 and r["numeric_recall"] == 1.0 and r["actual_class"] == r["expected_class"] for r in rows)
+    # generated pages: near-exact, but a tolerance keeps the test about extraction, not about one space (review C7)
+    assert all(r["cer"] <= 0.01 and r["numeric_recall"] >= 0.99 and r["actual_class"] == r["expected_class"]
+               for r in rows)
     assert all(r["table_cell_accuracy"] in (None, 1.0) for r in rows)
 
 

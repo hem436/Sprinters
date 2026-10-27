@@ -168,8 +168,9 @@ def scan(pdf: Path, out: Path, seed: int, dpi: int = 150) -> None:
 def handwritten(lines: list[str], out: Path, seed: int, exif_rotated: bool = False) -> None:
     """A stand-in photo of a handwritten note: lined paper, a handwriting font, uneven lines, a slight tilt."""
     rnd = random.Random(seed)
-    font_path = next(p for p in HAND_FONTS if Path(p).exists())
-    font = ImageFont.truetype(font_path, 44)
+    font_path = next((p for p in HAND_FONTS if Path(p).exists()), None)
+    # no handwriting font on this machine (review C6): Pillow's own font, so the run still finishes
+    font = ImageFont.truetype(font_path, 44) if font_path else ImageFont.load_default(size=44)
     img = Image.new("RGB", (1500, 1150), (250, 248, 240))
     d = ImageDraw.Draw(img)
     for y in range(120, 1150, 62):
@@ -190,6 +191,24 @@ def handwritten(lines: list[str], out: Path, seed: int, exif_rotated: bool = Fal
         img = img.transpose(Image.Transpose.ROTATE_90)
         exif[0x0112] = 6
     img.save(str(out), "JPEG", quality=85, exif=exif.tobytes())
+
+
+def fixed_zip_dates(path: Path) -> None:
+    """A .docx is a zip whose entries carry the time of writing; set them all to FIXED_DATE, so a re-run changes no
+    bytes."""
+    import zipfile
+
+    with zipfile.ZipFile(path) as z:
+        entries = [(info, z.read(info.filename)) for info in z.infolist()]
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for info, data in entries:
+            info.date_time = FIXED_DATE.timetuple()[:6]
+            z.writestr(info, data)
+
+
+def first_table(page: list[tuple]) -> list[list[str]]:
+    """The rows of the first table on a page (found, not a hard-coded position: review C6)."""
+    return next(item[1] for item in page if item[0] == "table")
 
 
 def write_gold(name: str, text: str, table: list[list[str]] | None = None) -> None:
@@ -437,6 +456,7 @@ def main() -> None:
     d.core_properties.created = d.core_properties.modified = FIXED_DATE
     d.core_properties.last_modified_by = "demo generator"
     d.save(str(DOCS / "it-security-sop.docx"))
+    fixed_zip_dates(DOCS / "it-security-sop.docx")
     (DOCS / "onboarding-faq.txt").write_text(FAQ, encoding="utf-8")
 
     # handwritten stand-ins; note 2 is stored on its side with an EXIF tag, like a phone photo
@@ -481,11 +501,11 @@ def main() -> None:
 
     # gold set (contract 10 section 10)
     write_gold("ar25_p1_mdna", page_gold(MDNA))
-    write_gold("ar25_p2_pl_text", page_gold(ar25[1]), [PL_HEADER, *PL_CONSOLIDATED])
-    write_gold("pl_scanned_p1", page_gold(ar25[1]), [PL_HEADER, *PL_CONSOLIDATED])
+    write_gold("ar25_p2_pl_text", page_gold(ar25[1]), first_table(ar25[1]))
+    write_gold("pl_scanned_p1", page_gold(ar25[1]), first_table(ar25[1]))
     # the running header and footer are removed from OCR pages too (X4 step 2), so no gold page has them
-    write_gold("policy_v1_scanned_p2", page_gold(p1[1]), p1[1][5][1])
-    write_gold("policy_v2_p2", page_gold(p2[1]), p2[1][5][1])
+    write_gold("policy_v1_scanned_p2", page_gold(p1[1]), first_table(p1[1]))
+    write_gold("policy_v2_p2", page_gold(p2[1]), first_table(p2[1]))
     write_gold("note_vendor_meeting", "\n".join(NOTE_1) + "\n")
     write_gold("note_ops_review", "\n".join(NOTE_2) + "\n")
     gold = [

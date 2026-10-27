@@ -34,8 +34,12 @@ class SectionTracker:
 
 
 def numbered_level(text: str) -> int | None:
+    """"4 Travel" = 1, "4.2 Per diem" = 2. "1. Submit the claim" (one number and a dot) is a list step, not a
+    heading (review B4); such a line is a heading only when its font or Markdown marks say so."""
     m = NUMBERED_HEADING.match(text)
     if not m or len(text.split()) > 12:
+        return None
+    if re.match(r"^\d{1,2}\.\s", text):
         return None
     return m.group(1).count(".") + 1
 
@@ -154,6 +158,10 @@ def heading_level(line: Line, body: float) -> int | None:
     level = numbered_level(text)
     if level:
         return level
+    styled = (body and line.size >= body * 1.15) or (line.bold and words <= 10)
+    m = re.match(r"^(\d{1,2})\.\s", text)
+    if m and styled:
+        return 1                                     # "1. Purpose" in a heading font
     if body and line.size >= body * 1.15:
         return 1 if line.size >= body * 1.5 else 2
     if line.bold and words <= 10 and not text[0].isdigit():
@@ -183,23 +191,26 @@ def lines_to_blocks(lines: list[Line], tracker: SectionTracker, method: str = "t
         para, items = [], []
 
     prev: Line | None = None
+    last_heading: Line | None = None      # a wrapped heading continues only on the line right after it (review C1)
     for ln in lines:
         text = ln.text.strip()
         if not text:
             continue
         new_para = prev is not None and step and (ln.top - prev.top) > 1.5 * step
         level = heading_level(ln, body)
-        if level and _continues_heading(prev, ln, level, blocks):
+        if level and prev is last_heading and not para and not items and _continues_heading(prev, ln, level, blocks):
             # a heading wrapped onto a second line ("Management Discussion / and Analysis") is one heading
             last = blocks[-1]
             last.text = normalise(f"{last.text} {text}")
             tracker.stack[-1] = (tracker.stack[-1][0], last.text)
             last.section = tracker.path
+            last_heading = ln
         elif level:
             flush()
             title = normalise(text)
             path = tracker.enter(level, title)
             blocks.append(Block("heading", title, path, method, level=level))
+            last_heading = ln
         elif LIST_ITEM.match(text):
             if para:
                 flush()
