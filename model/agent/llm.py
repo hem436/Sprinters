@@ -57,7 +57,10 @@ class OpenAICompatibleLLM:
                 try:
                     return self._call(model, system, user, json_mode)
                 except urllib.error.HTTPError as error:            # before CALL_ERRORS: it is also a URLError
-                    body = error.read().decode(errors="replace")
+                    try:
+                        body = error.read().decode(errors="replace")
+                    except CALL_ERRORS:                             # the socket dropped while reading the error body
+                        body = ""
                     wait = _retry_after(error, body)
                     if error.code == 429 and attempt == 1 and wait is not None and wait <= MAX_RATE_WAIT_S:
                         time.sleep(wait)
@@ -109,7 +112,7 @@ def _retry_after(error: urllib.error.HTTPError, body: str) -> float | None:
             return float(header)
     except ValueError:
         pass
-    found = re.search(r"try again in ([\d.]+)\s*(ms|s)\b", body)
+    found = re.search(r"try again in (\d+(?:\.\d+)?)\s*(ms|s)\b", body)     # "1.2.3s" does not match: no wait
     if not found:
         return None
     value = float(found.group(1))
