@@ -3,6 +3,7 @@
 guard (S1) -> plan (M1, R1) -> retrieve (H1 to H4, C1) and/or tool (T1 to T4) -> generate (A1 to A4, G1) -> validate (V1, V2, V4)
 """
 import operator
+import re
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -200,7 +201,8 @@ def _validate(state: AgentState) -> dict:
     answer, citation_checks = check_citations(answer, set(evidence))
     grounding, claim_checks = check_grounding(answer, evidence)
     suspects = [e.text for e in evidence.values() if e.chunk and e.chunk.injection_suspect]
-    text, flags = check_output(answer.answer_markdown, suspects)
+    # the live model sometimes marks citations as 【T1】; the chat links the plain [T1] form
+    text, flags = check_output(re.sub(r"【(\w+)】", r"[]", answer.answer_markdown), suspects)
     if suspects:
         flags = ["INJECTION_IN_EVIDENCE", *flags]
     return {"answer": answer, "text": text, "citation_checks": citation_checks, "grounding": grounding,

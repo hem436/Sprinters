@@ -206,3 +206,12 @@ def test_live_paraphrase_with_non_breaking_hyphens_is_supported(corpus):
 def test_eval_criteria_ignore_hyphen_style():
     from agent.evaluation import criteria_ok
     assert criteria_ok("POL\u2011HR\u2011014 requires encryption", ["POL-HR-014"], [])
+
+
+def test_live_citation_brackets_become_plain(corpus, table_reranker):
+    answer = {"answer_markdown": "Encrypted and patched within 30 days\u3010E1\u3011.",
+              "claims": [{"text": "Every laptop must be encrypted and patched within 30 days.", "citations": ["E1"]}]}
+    llm = FakeLLM({"route": [DOCS], "answer": [answer]})
+    r = Agent(StubSearch(corpus, bm25=[Hit("c_sop_laptop", 9.0, 1)]), StubTools(), llm, table_reranker({"POL": 0.9})).answer(
+        "laptops?", "s1", NullRecorder())
+    assert r.answer_markdown == "Encrypted and patched within 30 days[E1]."
