@@ -189,7 +189,13 @@ def lines_to_blocks(lines: list[Line], tracker: SectionTracker, method: str = "t
             continue
         new_para = prev is not None and step and (ln.top - prev.top) > 1.5 * step
         level = heading_level(ln, body)
-        if level:
+        if level and _continues_heading(prev, ln, level, blocks):
+            # a heading wrapped onto a second line ("Management Discussion / and Analysis") is one heading
+            last = blocks[-1]
+            last.text = normalise(f"{last.text} {text}")
+            tracker.stack[-1] = (tracker.stack[-1][0], last.text)
+            last.section = tracker.path
+        elif level:
             flush()
             title = normalise(text)
             path = tracker.enter(level, title)
@@ -207,6 +213,15 @@ def lines_to_blocks(lines: list[Line], tracker: SectionTracker, method: str = "t
         prev = ln
     flush()
     return blocks
+
+
+def _continues_heading(prev: Line | None, ln: Line, level: int, blocks: list[Block]) -> bool:
+    """The line right under a heading line, in the same font size, with no number of its own and no gap."""
+    if prev is None or not blocks or blocks[-1].type != "heading" or blocks[-1].level != level:
+        return False
+    if numbered_level(ln.text.strip()) is not None or abs(ln.size - prev.size) > 0.5:
+        return False
+    return (ln.top - prev.bottom) < 0.6 * max(ln.size, 1)
 
 
 # ---- blocks from plain text (pypdf fallback, TXT, OCR Markdown) -----------------------------------------------------
