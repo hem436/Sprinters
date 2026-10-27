@@ -1,9 +1,7 @@
-import { Link } from 'react-router-dom'
 import type { Citation, Confidence, QueryResponse } from '../../api/types'
 import { Answer } from '../../components/Answer'
 import { FeedbackBar } from '../../components/FeedbackBar'
 import { ErrorBanner } from '../../components/ui'
-import { useAuth } from '../../hooks/useAuth'
 
 export interface Turn {
   id: string
@@ -49,7 +47,6 @@ export function ChatMessage({
   onSelect?: (citationId: string) => void
   onRetry: () => void
 }) {
-  const { canAdmin } = useAuth()
   const r = turn.response
   const isFallback = r?.reason_code === 'NO_EVIDENCE' || r?.reason_code === 'BLOCKED_SAFETY'
   const citations = r?.citations ?? turn.citations
@@ -113,14 +110,8 @@ export function ChatMessage({
         ) : null}
 
         {r ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <FeedbackBar queryId={r.query_id} />
-            {canAdmin ? (
-              <Link to={`/queries/${r.query_id}`} className="text-xs text-indigo-600 hover:underline dark:text-indigo-300">
-                Details
-              </Link>
-            ) : null}
-          </div>
+          // The chat is the user view: no links into admin pages. Admins open a query from the dashboard.
+          <FeedbackBar queryId={r.query_id} />
         ) : null}
       </div>
     </div>

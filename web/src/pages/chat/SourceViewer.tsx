@@ -1,14 +1,16 @@
 import { Link } from 'react-router-dom'
 import type { Citation, ToolResult } from '../../api/types'
-import { toAppPath } from '../../components/CitationChip'
-import { useAuth } from '../../hooks/useAuth'
 
 const meta = 'inline-flex items-center rounded-full border border-slate-300 px-2.5 py-0.5 text-xs dark:border-slate-600'
 
+/** The user Documents reader for a citation url like /documents/{id}/pages/{n}; null when the url has another form. */
+export function readerLink(url: string): string | null {
+  const m = /^\/(?:admin\/)?documents\/([^/]+)\/pages\/(\d+)/.exec(url)
+  return m ? `/documents?doc=${encodeURIComponent(decodeURIComponent(m[1]))}&page=${m[2]}` : null
+}
+
 /** Right-hand panel of the chat, like Verba's document view: the passage behind the selected source. */
 export function SourceViewer({ citation, toolResult }: { citation: Citation | null; toolResult?: ToolResult }) {
-  const { canAdmin } = useAuth()
-
   if (!citation) {
     return (
       <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 p-8 text-center text-sm text-slate-500">
@@ -72,6 +74,7 @@ export function SourceViewer({ citation, toolResult }: { citation: Citation | nu
     )
   }
 
+  const reader = readerLink(citation.url)
   return (
     <div className="flex flex-col">
       <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
@@ -95,9 +98,9 @@ export function SourceViewer({ citation, toolResult }: { citation: Citation | nu
         )}
         {citation.method === 'ocr' ? <p className="m-0 text-xs text-slate-500">This text was read from a scanned page.</p> : null}
       </div>
-      {canAdmin ? (
+      {reader ? (
         <div className="border-t border-slate-200 px-5 py-3 text-sm dark:border-slate-800">
-          <Link to={toAppPath(citation.url)} className="text-indigo-600 hover:underline dark:text-indigo-300">
+          <Link to={reader} className="text-indigo-600 hover:underline dark:text-indigo-300">
             Open the page
           </Link>
         </div>

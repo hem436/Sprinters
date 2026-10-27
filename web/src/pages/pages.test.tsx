@@ -5,7 +5,7 @@ import { FALLBACK_TEXT } from '../api/mock/scenarios'
 import type { QueryResponse } from '../api/types'
 import { renderWithProviders } from '../test/render'
 import { ChatMessage, type Turn } from './chat/ChatMessage'
-import { SourceViewer } from './chat/SourceViewer'
+import { readerLink, SourceViewer } from './chat/SourceViewer'
 import { Comparison } from './eval/EvalPage'
 import { DrillDownView } from './queries/QueryDetailPage'
 
@@ -41,6 +41,23 @@ describe('ChatMessage', () => {
     expect(screen.queryByText('SQL')).not.toBeInTheDocument()
     expect(screen.queryByText(/SUCCESS/)).not.toBeInTheDocument()
     expect(screen.queryByText(/\$0\./)).not.toBeInTheDocument()
+  })
+})
+
+describe('chat stays in the user view', () => {
+  it('has no link into admin pages under an answer', async () => {
+    const r = await ask('What is the per diem in Mumbai?')
+    renderWithProviders(<ChatMessage turn={turnOf(r)} onRetry={() => {}} />)
+    expect(screen.queryByRole('link', { name: 'Details' })).not.toBeInTheDocument()
+    for (const link of screen.queryAllByRole('link')) expect(link.getAttribute('href') ?? '').not.toMatch(/^\/(admin|queries|dashboard|eval)/)
+  })
+
+  it('opens a cited page in the user Documents reader', async () => {
+    const r = await ask('What is the per diem in Mumbai?')
+    renderWithProviders(<SourceViewer citation={r.citations[0]} />)
+    expect(screen.getByRole('link', { name: 'Open the page' })).toHaveAttribute('href', '/documents?doc=doc_7f3a&page=7')
+    expect(readerLink('/admin/documents/doc_19c0/pages/6')).toBe('/documents?doc=doc_19c0&page=6')
+    expect(readerLink('https://elsewhere')).toBeNull()
   })
 })
 
