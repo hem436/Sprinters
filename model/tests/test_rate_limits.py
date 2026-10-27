@@ -39,6 +39,14 @@ def test_a_long_429_moves_to_the_next_model():
     assert llm.complete("s", "u", purpose="answer").model == "small" and calls == ["big", "small"]
 
 
+def test_a_malformed_wait_or_a_dropped_body_moves_on():
+    """Review #25: neither may escape the fallback loop."""
+    broken = _http_429(None)
+    broken.read = lambda *a: (_ for _ in ()).throw(ConnectionResetError("dropped"))
+    llm, calls = _client([_http_429(None, "Please try again in 1.2.3s."), broken, "ok"], more_models=("third",))
+    assert llm.complete("s", "u", purpose="answer").model == "third" and calls == ["big", "small", "third"]
+
+
 def test_the_planner_starts_on_its_own_model():
     llm, calls = _client(["ok", "ok"], route_model="small", more_models=("third",))
     llm.complete("s", "u", purpose="route")
