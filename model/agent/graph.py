@@ -202,7 +202,7 @@ def _validate(state: AgentState) -> dict:
     grounding, claim_checks = check_grounding(answer, evidence)
     suspects = [e.text for e in evidence.values() if e.chunk and e.chunk.injection_suspect]
     # the live model sometimes marks citations as 【T1】; the chat links the plain [T1] form
-    text, flags = check_output(re.sub(r"【(\w+)】", r"[]", answer.answer_markdown), suspects)
+    text, flags = check_output(re.sub(r"【(\w+)】", r"[\1]", answer.answer_markdown), suspects)
     if suspects:
         flags = ["INJECTION_IN_EVIDENCE", *flags]
     return {"answer": answer, "text": text, "citation_checks": citation_checks, "grounding": grounding,
