@@ -12,17 +12,20 @@ _PROMPT = (Path(__file__).parent.parent / "prompts" / "route-v1.txt").read_text(
 
 # R1: identifiers that only the business data holds (contract 13 schema).
 _DATA_IDS = re.compile(r"\b(P-\d{3}|EXP-\d+|D-[A-Z]{2,}|LT-\d+|E\d{4})\b")
-# R1: words that ask for a computed number.
-_DATA_WORDS = re.compile(r"\b(total|how many|count|spent|spend|headcount|sum|average|overspen\w*|over (its |the )?budget)\b", re.I)
-# R1: weak data words count only when the question has no document words: "What is the Finance department's travel
-# budget?" needs data, "What does the travel policy say about budget overruns?" is a document question.
-_WEAK_DATA_WORDS = re.compile(r"\b(budgets?)\b", re.I)
+# R1: words that ask for a computed number. Policies use them too ("How many days of paid leave?", "What is the meal
+# budget per day?"), so they need data only when the question also names a thing the business data holds (review #25).
+_MEASURE_WORDS = re.compile(r"\b(total|how many|count|spent|spend|headcount|sum|average|overspen\w*|budgets?)\b", re.I)
+# R1: the things in the business data (contract 13 schema): projects, departments, assets, employees. A department
+# name must not match inside a document id such as POL-HR-014.
+_DATA_THINGS = re.compile(r"(?<![\w-])(projects?|departments?|laptops?|assets?|devices?|employees?|staff|"
+                          r"engineering|finance|human resources|operations)(?![\w-])", re.I)
 # R1b: financial-report numbers (contract 14 section 7): a metric with a period, or a comparison word.
 _METRIC_WORDS = re.compile(r"\b(revenue|profit|pat|pbt|ebitda|margin|eps|income|cash flow|borrowings|segment)\b", re.I)
 _PERIOD = re.compile(r"\b(FY\s?\d{2,4}(-\d{2})?|20\d{2}|Q[1-4])\b", re.I)
 _COMPARE_WORDS = re.compile(r"\b(compare|comparison|growth|grew|trend|by segment|versus|vs\.?)\b", re.I)
-# R1: words that ask what a document says.
-_DOC_WORDS = re.compile(r"\b(policy|policies|rule|procedure|sop|guideline|says?|allowed|approv\w*|why|explain|reason|outlook|risk|require\w*)\b", re.I)
+# R1: words that ask what a document says. "approved" is left out: "approved spend" is a status in the data (S02).
+_DOC_WORDS = re.compile(r"\b(policy|policies|rule|procedure|sop|guideline|says?|allowed|approv(e|es|al|als|er|ers|ing)|"
+                        r"why|explain|reason|outlook|risk|require\w*)\b", re.I)
 _GREETING = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|good (morning|afternoon|evening))\b[\s!.?]*$", re.I)
 
 
@@ -30,8 +33,8 @@ def rule_signals(question: str) -> tuple[bool, bool]:
     """R1 and R1b: (needs data, needs documents) from the question's words alone."""
     financial = bool(_METRIC_WORDS.search(question)) and bool(_PERIOD.search(question) or _COMPARE_WORDS.search(question))
     needs_docs = bool(_DOC_WORDS.search(question))
-    weak = bool(_WEAK_DATA_WORDS.search(question)) and not needs_docs
-    needs_data = bool(_DATA_IDS.search(question) or _DATA_WORDS.search(question)) or financial or weak
+    measure = bool(_MEASURE_WORDS.search(question)) and bool(_DATA_THINGS.search(question))
+    needs_data = bool(_DATA_IDS.search(question)) or measure or financial
     return needs_data, needs_docs
 
 

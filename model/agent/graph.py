@@ -90,7 +90,10 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
     def run_tool(state: AgentState) -> dict:
         decision = state["route"]
         if decision.tool is None:
-            # no approved tool fits: nothing runs, so nothing is recorded as a tool call (13 section 5, NO_TOOL)
+            # 13 section 5, NO_TOOL: no approved tool fits. The stage is recorded so the drill-down shows why, but no
+            # tool_call row, because no tool ran (review #25)
+            with run_stage(state["recorder"], "tool") as stage:
+                _detail(stage, tool=None, status="NO_TOOL")
             return {"tools": [], "no_tool": True}
         with run_stage(state["recorder"], "tool"):
             result = tools.run_tool(decision.tool, decision.tool_args)
@@ -162,9 +165,9 @@ def _generate(state: AgentState, llm: LLMPort) -> dict:
 
 def _without_evidence(tool_results: list[ToolResult], no_tool: bool) -> dict:
     """04 G1 and 13 section 5: which fixed text to show when nothing usable was found."""
-    if no_tool or any(t.status == "NO_TOOL" for t in tool_results):
+    if no_tool:
         return {"text": NO_TOOL_TEXT, "fallback": True}
-    if tool_results:            # the tool was needed and failed (timeout, database error, bad arguments)
+    if tool_results:            # the tool ran and failed (timeout, database error, bad arguments)
         return {"text": TOOL_UNAVAILABLE_TEXT, "fallback": False}
     return {"text": NO_EVIDENCE_TEXT, "fallback": True}
 

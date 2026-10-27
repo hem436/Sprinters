@@ -96,7 +96,7 @@ python -m agent.eval_cli --configs B --only D01 S01       # a quick subset
 ```
 
 For Sinngam's `POST /eval/runs`: insert the `eval_run` row, then in a background thread call
-`run_eval(agent, agent.search, load_cases(path), config_id, QueryRecorder.start, tools=agent.tools,
+`run_eval(agent, agent.search, load_cases(path), config_id, QueryRecorder.start,
 on_case=<insert one eval_result row: case_id, query_id, scenario, passed, measures = the rest of the row>, run_id=run_id)`
 and store the returned `summary` (it has `cases_total`) when it ends.
 

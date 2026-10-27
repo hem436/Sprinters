@@ -6,6 +6,7 @@ done here: Sinngam's POST /eval/runs passes `on_case` to write `eval_result` row
 """
 import csv
 import json
+import re
 import statistics
 import uuid
 from collections.abc import Callable
@@ -13,8 +14,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
-from agent.ports import RecorderPort, SearchPort
-from agent.types import QueryResponse
+from agent.ports import RecorderPort, SearchPort, ToolPort
+from agent.types import QueryResponse, ToolResult
 from agent.validate import normalise
 
 K = 5          # hit@5, recall@5 and MRR@5 use the final top 5 (contract 11 section 7, gap G4)
@@ -95,10 +96,24 @@ def reciprocal_rank(found: list[dict], expected: list[dict], k: int = K) -> floa
 
 
 def criteria_ok(answer: str, must_include: list[str], must_not_include: list[str]) -> bool:
-    """Case-blind, and "P‑104" with a non-breaking hyphen counts as "P-104" (validate.normalise)."""
-    text = normalise(answer).lower()
-    return (all(normalise(s).lower() in text for s in must_include)
-            and not any(normalise(s).lower() in text for s in must_not_include))
+    """"P‑104" with a non-breaking hyphen counts as "P-104" (validate.normalise).
+
+    must_include is case-blind. must_not_include is case-sensitive: the planted "APPROVED" is a failure, the honest
+    word "approved" is not (review #25).
+    """
+    text = normalise(answer)
+    return (all(_contains(text.lower(), normalise(s).lower()) for s in must_include)
+            and not any(_contains(text, normalise(s)) for s in must_not_include))
+
+
+def _contains(text: str, phrase: str) -> bool:
+    """The phrase as a whole word or number: "3" is not found in "30 days", "100" is not found in "1,100" (review #25).
+
+    The end of a word is left open, so "payment" still matches "payments".
+    """
+    start = r"(?<!\w)(?<!\d[.,])" if phrase[:1].isalnum() else ""
+    end = r"(?!\d|[.,]\d)" if phrase[-1:].isdigit() else ""
+    return re.search(start + re.escape(phrase) + end, text) is not None
 
 
 # --- running -----------------------------------------------------------------------------------------------------
@@ -128,8 +143,22 @@ class CapturingRecorder:
         return self._inner.finish(answer, route, grounding_score, **kwargs)
 
 
+class FailingTools:
+    """11 section 7, the tool-failure cases: the same catalogue, but every call times out. A separate object, so the
+    registry that serves real users is never switched to failure while an eval runs (review #25)."""
+
+    def __init__(self, inner: ToolPort):
+        self._inner = inner
+
+    def list_tools(self) -> list[dict]:
+        return self._inner.list_tools()
+
+    def run_tool(self, name: str, args: dict) -> ToolResult:
+        return ToolResult(name, "TIMEOUT", args=args, message="simulated tool failure (eval case)")
+
+
 def run_eval(agent, search: SearchPort, cases: list[EvalCase], config_id: str,
-             new_recorder: Callable[[str, str, str], RecorderPort], tools=None,
+             new_recorder: Callable[[str, str, str], RecorderPort],
              on_case: Callable[[dict], None] | None = None, run_id: str | None = None) -> dict:
     """Ask every case, score it, and return {"run_id", "config_id", "summary", "results"}.
 
@@ -137,28 +166,23 @@ def run_eval(agent, search: SearchPort, cases: list[EvalCase], config_id: str,
     QueryRecorder.start), so every eval question is stored and opens in the drill-down like a user's.
     """
     run_id = run_id or f"eval-{uuid.uuid4().hex[:8]}"
+    failing = agent.with_tools(FailingTools(agent.tools))
     results = []
     for case in cases:
-        result = _run_case(agent, search, case, config_id, new_recorder, tools, run_id)
+        result = _run_case(failing if case.simulate_tool_failure else agent, search, case, config_id, new_recorder,
+                           run_id)
         results.append(result)
         if on_case:
             on_case(result)
     return {"run_id": run_id, "config_id": config_id, "summary": summarize(results), "results": results}
 
 
-def _run_case(agent, search, case: EvalCase, config_id: str, new_recorder, tools, run_id: str) -> dict:
+def _run_case(agent, search, case: EvalCase, config_id: str, new_recorder, run_id: str) -> dict:
     session = f"{run_id}-{case.id}"
-    failure_before = getattr(tools, "simulate_failure", None)
-    if case.simulate_tool_failure and tools is not None:
-        tools.simulate_failure = True           # 11 section 7: the tool-failure cases
-    try:
-        for turn in case.turns[:-1]:
-            agent.answer(turn, session, new_recorder(turn, session, config_id), config_id=config_id)
-        recorder = CapturingRecorder(new_recorder(case.turns[-1], session, config_id))
-        response = agent.answer(case.turns[-1], session, recorder, config_id=config_id)
-    finally:
-        if tools is not None and failure_before is not None:
-            tools.simulate_failure = failure_before
+    for turn in case.turns[:-1]:
+        agent.answer(turn, session, new_recorder(turn, session, config_id), config_id=config_id)
+    recorder = CapturingRecorder(new_recorder(case.turns[-1], session, config_id))
+    response = agent.answer(case.turns[-1], session, recorder, config_id=config_id)
     return score_case(case, response, _found(recorder, search), recorder)
 
 

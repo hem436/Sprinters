@@ -215,3 +215,107 @@ def test_live_citation_brackets_become_plain(corpus, table_reranker):
     r = Agent(StubSearch(corpus, bm25=[Hit("c_sop_laptop", 9.0, 1)]), StubTools(), llm, table_reranker({"POL": 0.9})).answer(
         "laptops?", "s1", NullRecorder())
     assert r.answer_markdown == "Encrypted and patched within 30 days[E1]."
+
+
+# --- third review of f132a2e..7f540cc (merged as b8b3c2b) --------------------------------------------------------
+
+@pytest.mark.parametrize("question", ["How many days of paid leave do I get in a year?",          # D01
+                                      "How many days of paid leave do I get?",                    # M02 turn 1
+                                      "How many days do I have to submit a travel claim?",         # C02
+                                      "How many days of leave does POL-HR-014 give?"])             # HR inside an id
+def test_r3_1_count_words_alone_do_not_force_data(question):
+    from agent.router import rule_signals
+    assert rule_signals(question)[0] is False
+
+
+def test_r3_1_count_word_with_a_data_thing_still_needs_data():
+    from agent.router import rule_signals
+    assert rule_signals("How many Finance laptops are not encrypted?") == (True, False)
+    assert rule_signals("What is the total spend of P-104?")[0] is True
+
+
+def test_r3_1_d01_keeps_the_planners_docs_route():
+    (decision, replies), _ = _route("How many days of paid leave do I get in a year?", DOCS)
+    assert (decision.route, decision.reason, len(replies)) == ("DOCS", "PLANNER", 1)
+
+
+def test_r3_2_meal_budget_is_a_policy_question():
+    from agent.router import rule_signals
+    assert rule_signals("What is the meal budget per day?")[0] is False
+    assert rule_signals("What is the Finance department's travel budget?")[0] is True
+
+
+def test_r3_3_budget_never_keeps_v2_without_v1(corpus):
+    v2, v1 = corpus["c_v2_perdiem"], corpus["c_v1_perdiem"]
+    conflict = Conflict(v2.doc_key, v2.section, [v2, v1])
+    only_v2 = len(v2.text) // 4 + 2                            # v2 fits, v2 + v1 does not
+    assert build_evidence([ScoredChunk(v2, 0.9)], [conflict], [], max_tokens=only_v2) == []
+    both = build_evidence([ScoredChunk(v2, 0.9), ScoredChunk(v1, 0.5)], [conflict], [], max_tokens=6000)
+    assert [e.chunk.chunk_id for e in both] == ["c_v2_perdiem", "c_v1_perdiem"]     # v1 once, not twice
+
+
+def test_r3_4_eval_never_touches_the_users_tools(corpus, table_reranker):
+    from agent.evaluation import EvalCase, FailingTools, run_eval
+    tools = StubTools(results={"budget_status": P104})
+    tools.simulate_failure = None                              # the value that used to be left switched on
+    sql = {"route": "SQL", "standalone_query": "q", "tool": "budget_status", "tool_args": {"project_id": "P-104"}}
+    agent = Agent(StubSearch(corpus), tools, FakeLLM({"route": [sql]}), table_reranker({}))
+    case = EvalCase("T01", "tool_failure", ["Is P-104 over its travel budget?"], "SQL", "TOOL_ERROR_HANDLED",
+                    expected_tool="budget_status", simulate_tool_failure=True)
+    run = run_eval(agent, agent.search, [case], "B", lambda q, s, c: NullRecorder())
+    assert run["results"][0]["passed"] == 1 and tools.simulate_failure is None
+    assert FailingTools(tools).list_tools() == tools.list_tools()
+
+
+def test_r3_5_honest_approved_is_not_the_planted_word():
+    from agent.evaluation import criteria_ok
+    assert criteria_ok("Your laptop is approved and issued on day one.", ["day one"], ["APPROVED"])
+    assert not criteria_ok("APPROVED. Your laptop is issued on day one.", ["day one"], ["APPROVED"])
+
+
+@pytest.mark.parametrize("answer, check, found", [
+    ("Submit within 30 days.", "3", False), ("3 Finance laptops are not encrypted.", "3", True),
+    ("Up to \u20b91,100 a day.", "100", False), ("Up to \u20b9100 a day.", "100", True),
+    ("Revenue grew 12.0% on payments.", "12.0", True), ("Revenue grew 12.05%.", "12.0", False),
+    ("Growth came from digital payments.", "payment", True)])
+def test_r3_6_short_checks_match_whole_numbers(answer, check, found):
+    from agent.evaluation import criteria_ok
+    assert criteria_ok(answer, [check], []) is found
+
+
+def test_r3_7_no_tool_is_recorded_as_a_stage(corpus, table_reranker):
+    llm = FakeLLM({"route": [{"route": "SQL", "standalone_query": "q", "tool": None}]})
+    recorder = NullRecorder()
+    Agent(StubSearch(corpus), StubTools(), llm, table_reranker({})).answer("Average claim by grade?", "s1", recorder)
+    assert recorder.stage_details["tool"] == {"tool": None, "status": "NO_TOOL"} and recorder.tool_calls == []
+
+
+def test_r3_7_bad_config_id_on_the_stream_fails_before_streaming(corpus, table_reranker):
+    agent = Agent(StubSearch(corpus), StubTools(), FakeLLM({}), table_reranker({}))
+    with pytest.raises(ValueError, match="config_id"):
+        agent.answer_stream("Hello!", "s1", NullRecorder(), config_id="C")     # raised at the call, not on next()
+
+
+def test_r3_7_only_with_an_unknown_id_stops_the_run():
+    from agent.eval_cli import select_cases
+    from agent.evaluation import EvalCase
+    cases = [EvalCase("D01", "direct_factual", ["q"], "DOCS", "ANSWER")]
+    assert select_cases(cases, ["D01"]) == cases and select_cases(cases, None) == cases
+    with pytest.raises(SystemExit, match="D10"):
+        select_cases(cases, ["D10"])
+
+
+def test_r3_7_type_error_is_not_a_provider_error():
+    from agent.llm import CALL_ERRORS, _content
+    assert TypeError not in CALL_ERRORS
+    for body in ([], {"choices": None}, {"choices": [None]}):
+        with pytest.raises(ValueError):
+            _content(body)
+    assert _content({"choices": [{"message": {"content": None}}]}) == ""
+
+
+def test_r3_approved_spend_is_a_data_question():
+    """Found while checking the eval set against the new rules: S02 was forced to BOTH by the word "approved"."""
+    from agent.router import rule_signals
+    assert rule_signals("What is the total approved travel spend of P-104 in FY2026-27?") == (True, False)
+    assert rule_signals("Who must approve an overrun on P-104?") == (True, True)

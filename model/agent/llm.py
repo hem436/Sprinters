@@ -13,9 +13,11 @@ import urllib.request
 from agent.types import LLMReply
 
 # Every way one call can fail: network (URLError, OSError, dropped connection), time, a body that is not the
-# expected JSON (ValueError, KeyError, IndexError, TypeError). Each sends us to the fallback model (review #25).
+# expected JSON (ValueError, KeyError, IndexError). Each sends us to the fallback model (review #25). TypeError is
+# left out on purpose: it would also hide a bug in our own code (review #25); _content() turns a wrong body shape
+# into a ValueError instead.
 CALL_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, TimeoutError,
-               ValueError, KeyError, IndexError, TypeError)
+               ValueError, KeyError, IndexError)
 
 
 class LLMError(RuntimeError):
@@ -54,8 +56,17 @@ class OpenAICompatibleLLM:
             data = json.loads(response.read())
             cache_hit = response.headers.get("x-portkey-cache-status", "").upper() == "HIT"
         latency_ms = int((time.perf_counter() - started) * 1000)
-        text = data["choices"][0]["message"]["content"] or ""
-        return _reply(text, data.get("model", model), data.get("usage"), system + user, latency_ms, cache_hit)
+        return _reply(_content(data), data.get("model", model), data.get("usage"), system + user, latency_ms,
+                      cache_hit)
+
+
+def _content(data: object) -> str:
+    """The reply text. A body of another shape (a list, "choices": null) is the provider's fault: ValueError."""
+    choices = data.get("choices") if isinstance(data, dict) else None
+    message = choices[0].get("message") if isinstance(choices, list) and choices and isinstance(choices[0], dict) else None
+    if not isinstance(message, dict):
+        raise ValueError("the reply has no choices[0].message")
+    return message.get("content") or ""
 
 
 def _reply(text: str, model: str, usage: dict | None, prompt: str, latency_ms: int, cache_hit: bool) -> LLMReply:
