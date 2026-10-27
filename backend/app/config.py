@@ -1,6 +1,6 @@
 """Config loader: config/app.yaml, then APP__SECTION__KEY environment overrides.
 
-Secrets (admin password, API keys) come only from the environment or .env.
+Secrets (API keys) come only from the environment or .env.
 """
 
 from __future__ import annotations
@@ -51,8 +51,6 @@ class HealthSection(BaseModel):
 
 
 class Secrets(BaseModel):
-    admin_user: str = "admin"
-    admin_password: str | None = None
     portkey_api_key: str | None = None
     llm_api_key: str | None = None
     gemini_api_key: str | None = None
@@ -60,8 +58,6 @@ class Secrets(BaseModel):
     @classmethod
     def from_env(cls) -> Secrets:
         return cls(
-            admin_user=os.getenv("ADMIN_USER") or "admin",
-            admin_password=os.getenv("ADMIN_PASSWORD") or None,
             portkey_api_key=os.getenv("PORTKEY_API_KEY") or None,
             llm_api_key=os.getenv("LLM_API_KEY") or None,
             gemini_api_key=os.getenv("GEMINI_API_KEY") or None,

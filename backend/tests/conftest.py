@@ -20,7 +20,7 @@ def config(tmp_path: Path) -> Config:
         "APP__HEALTH__TIMEOUT_S": "0.5",
     }
     cfg = load_config(DEFAULT_CONFIG_PATH, environ=env)
-    cfg.secrets = Secrets(admin_user="admin", admin_password="s3cret", portkey_api_key="pk-test")
+    cfg.secrets = Secrets(portkey_api_key="pk-test")
     return cfg
 
 

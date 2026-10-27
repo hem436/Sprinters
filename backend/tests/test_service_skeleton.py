@@ -1,13 +1,11 @@
-"""WP-BE1: error format, request ids, require_admin, config loader, /health."""
+"""WP-BE1: error format, request ids, config loader, /health."""
 
 from __future__ import annotations
 
-from fastapi import Depends
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from app.api import health
-from app.api.auth import require_admin
 from app.api.errors import ApiError
 from app.config import DEFAULT_CONFIG_PATH, Config, load_config
 from app.main import create_app
@@ -33,9 +31,6 @@ def _app_with_probe_routes(config: Config) -> TestClient:
     def boom():
         raise RuntimeError("secret internal detail")
 
-    @app.get("/_probe/admin")
-    def admin(user: str = Depends(require_admin)):
-        return {"user": user}
 
     return TestClient(app, raise_server_exceptions=False)
 
@@ -77,32 +72,6 @@ def test_every_response_has_a_request_id(client):
     second = client.get("/no-such-route").headers["X-Request-Id"]
     assert len(first) == 26 and len(second) == 26
     assert first != second
-
-
-# require_admin
-
-def test_admin_route_needs_credentials(config):
-    resp = _app_with_probe_routes(config).get("/_probe/admin")
-    assert resp.status_code == 401
-    assert resp.json()["error"]["code"] == "UNAUTHORIZED"
-    assert resp.headers["WWW-Authenticate"].startswith("Basic")
-
-
-def test_admin_route_rejects_wrong_password(config):
-    resp = _app_with_probe_routes(config).get("/_probe/admin", auth=("admin", "wrong"))
-    assert resp.status_code == 401
-
-
-def test_admin_route_accepts_right_password(config):
-    resp = _app_with_probe_routes(config).get("/_probe/admin", auth=("admin", "s3cret"))
-    assert resp.status_code == 200
-    assert resp.json() == {"user": "admin"}
-
-
-def test_admin_route_refuses_when_no_password_configured(config):
-    config.secrets.admin_password = None
-    resp = _app_with_probe_routes(config).get("/_probe/admin", auth=("admin", ""))
-    assert resp.status_code == 401
 
 
 # Config loader

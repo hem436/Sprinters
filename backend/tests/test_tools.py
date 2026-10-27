@@ -19,7 +19,6 @@ from app.tools.registry import ToolRegistry
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import make_business_data  # noqa: E402
 
-ADMIN = ("admin", "s3cret")
 P104_TRAVEL = {"project_id": "P-104", "fiscal_year": "FY2026-27", "category": "TRAVEL"}
 
 
@@ -178,7 +177,7 @@ def api(config, business_db) -> TestClient:
 
 
 def test_get_tools_matches_the_web_app(api):
-    tools = api.get("/tools", auth=ADMIN).json()
+    tools = api.get("/tools").json()
     assert len(tools) == 6
     assert set(tools[0]) >= {"name", "version", "source", "description", "argument_schema", "approved",
                              "success_rate"}
@@ -186,20 +185,15 @@ def test_get_tools_matches_the_web_app(api):
 
 
 def test_try_tool_ok(api):
-    body = api.post("/tools/budget_status/try", json={"args": P104_TRAVEL}, auth=ADMIN).json()
+    body = api.post("/tools/budget_status/try", json={"args": P104_TRAVEL}).json()
     assert body["rows"][0]["spent"] == "₹4,35,500"
     assert body["provenance"]["tool"] == "budget_status" and body["provenance"]["row_count"] == 1
 
 
 def test_try_tool_errors(api):
-    assert api.post("/tools/nope/try", json={"args": {}}, auth=ADMIN).status_code == 404
-    resp = api.post("/tools/budget_status/try", json={"args": {"project_id": "P-999", "fiscal_year": "FY2026-27"}},
-                    auth=ADMIN)
+    assert api.post("/tools/nope/try", json={"args": {}}).status_code == 404
+    resp = api.post("/tools/budget_status/try", json={"args": {"project_id": "P-999", "fiscal_year": "FY2026-27"}})
     assert resp.status_code == 422
     assert resp.json()["error"] == {"code": "ARGS_INVALID",
                                     "message": "The arguments failed the check. The tool did not run.",
                                     "fields": [{"field": "project_id", "problem": "P-999 was not recognised"}]}
-
-
-def test_tools_need_admin(api):
-    assert api.get("/tools").status_code == 401

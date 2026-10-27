@@ -14,7 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 log = logging.getLogger(__name__)
 
-_STATUS_CODES = {401: "UNAUTHORIZED", 404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}
+_STATUS_CODES = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}
 
 
 class ApiError(Exception):

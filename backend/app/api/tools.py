@@ -1,4 +1,4 @@
-"""GET /tools and POST /tools/{name}/try (contract 05; admin; contract 13 section 6).
+"""GET /tools and POST /tools/{name}/try (contract 05; contract 13 section 6). Open: no login, as for every route.
 
 Shapes follow the web app's ToolInfo and ToolTryResult (web/src/api/types.ts).
 """
@@ -11,12 +11,11 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.api.auth import require_admin
 from app.api.errors import ApiError
 from app.config import Config, get_config
 from app.tools.registry import ToolRegistry
 
-router = APIRouter(tags=["tools"], dependencies=[Depends(require_admin)])
+router = APIRouter(tags=["tools"])
 
 
 class TryRequest(BaseModel):
