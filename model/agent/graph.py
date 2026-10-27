@@ -14,6 +14,7 @@ from agent.context import select_context
 from agent.llm import LLMError
 from agent.outcome import has_relevant_evidence
 from agent.ports import LLMPort, RecorderPort, RerankerPort, SearchPort, ToolPort
+from agent.recording import report_llm, report_tool, run_stage
 from agent.retrieval import Conflict, RetrievalResult, find_conflicts, retrieve
 from agent.router import ROUTE_PROMPT_VERSION, route_question
 from agent.safety import check_output, guard_question
@@ -53,7 +54,7 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
     """Compile the graph once; the other parts come in here, the per-query values come in the state."""
 
     def guard(state: AgentState) -> dict:
-        with state["recorder"].stage("guard"):
+        with run_stage(state["recorder"], "guard"):
             blocked, reason = guard_question(state["question"])
         if blocked:
             return {"blocked": True, "text": BLOCKED_TEXT, "safety_flags": [f"GUARD_{reason}"]}
@@ -61,15 +62,16 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
 
     def plan(state: AgentState) -> dict:
         context = select_context(state.get("history", []), state["cfg"])
-        with state["recorder"].stage("plan"):
+        with run_stage(state["recorder"], "plan", "context", "route") as stage:
             try:
-                decision, reply = route_question(state["question"], context, llm, tools)
+                decision, replies = route_question(state["question"], context, llm, tools)
             except LLMError:
                 # 06 AI-4: the planner failed, so answer from the documents with the user's own words
-                decision, reply = RouteDecision("DOCS", state["question"], reason="ROUTE_FALLBACK"), None
-        if reply:
-            state["recorder"].llm_call("route", reply, ROUTE_PROMPT_VERSION)
-        return {"context": context, "route": decision, "replies": [reply] if reply else []}
+                decision, replies = RouteDecision("DOCS", state["question"], reason="ROUTE_FALLBACK"), []
+            _detail(stage, route=decision.route, route_reason=decision.reason, tool=decision.tool)
+        for reply in replies:
+            report_llm(state["recorder"], "route", reply, ROUTE_PROMPT_VERSION)
+        return {"context": context, "route": decision, "replies": replies}
 
     def retrieve_docs(state: AgentState) -> dict:
         query, cfg = state["route"].standalone_query, state["cfg"]
@@ -80,21 +82,28 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
 
     def run_tool(state: AgentState) -> dict:
         decision = state["route"]
-        with state["recorder"].stage("tool"):
+        with run_stage(state["recorder"], "tool"):
             if decision.tool is None:
                 result = ToolResult(tool="none", status="NO_TOOL", message="no approved tool fits this question")
             else:
                 result = tools.run_tool(decision.tool, decision.tool_args)
-        state["recorder"].tool_call(result)
+        report_tool(state["recorder"], result)
         return {"tools": [result]}
 
     def generate(state: AgentState) -> dict:
-        with state["recorder"].stage("generate"):
+        with run_stage(state["recorder"], "generate", "answer"):
             return _generate(state, llm)
 
     def validate(state: AgentState) -> dict:
-        with state["recorder"].stage("validate"):
-            return _validate(state)
+        with run_stage(state["recorder"], "validate") as stage:
+            result = _validate(state)
+            conflicts = state.get("conflicts", [])
+            answer = result.get("answer") or state.get("answer")
+            _detail(stage, conflicts=[{"doc_key": c.doc_key, "section": c.section,
+                                       "versions": [v.version for v in c.versions]} for c in conflicts],
+                    # C1: code found differing versions but the answer did not show them; the reviewer must see it
+                    conflict_not_shown=bool(conflicts) and not (answer is not None and answer.conflict))
+            return result
 
     graph = StateGraph(AgentState)
     for name, node in (("guard", guard), ("plan", plan), ("retrieve", retrieve_docs), ("tool", run_tool),
@@ -108,6 +117,12 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
     graph.add_edge("generate", "validate")
     graph.add_edge("validate", END)
     return graph.compile()
+
+
+def _detail(stage, **values) -> None:
+    """Add facts to the recorder's stage row (its `detail` column), when the recorder offers one."""
+    if stage is not None and hasattr(stage, "detail"):
+        stage.detail.update(values)
 
 
 def _after_plan(state: AgentState) -> str:
@@ -149,13 +164,13 @@ def _ask_model(state: AgentState, llm: LLMPort, system: str, user: str) -> dict:
     try:
         reply = llm.complete(system, user, purpose="answer")
         replies.append(reply)
-        recorder.llm_call("answer", reply, ANSWER_PROMPT_VERSION)
+        report_llm(recorder, "answer", reply, ANSWER_PROMPT_VERSION)
         try:
             answer = parse_answer(reply.text)
         except ValueError:
             repair = llm.complete(system, user + "\n\n" + REPAIR_INSTRUCTION, purpose="repair")
             replies.append(repair)
-            recorder.llm_call("repair", repair, ANSWER_PROMPT_VERSION)
+            report_llm(recorder, "repair", repair, ANSWER_PROMPT_VERSION)
             answer = parse_answer(repair.text)
     except LLMError:
         return {"text": NO_EVIDENCE_TEXT, "llm_failed": True, "replies": replies}

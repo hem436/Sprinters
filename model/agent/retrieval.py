@@ -6,6 +6,7 @@ from typing import Literal
 from agent.config import AgentConfig
 from agent.numbers import numbers_in
 from agent.ports import RecorderPort, RerankerPort, SearchPort
+from agent.recording import hit_rows, run_stage
 from agent.types import Chunk, Hit, ScoredChunk
 
 
@@ -56,23 +57,26 @@ def retrieve(query: str, filters: dict | None, cfg: AgentConfig, search: SearchP
              reranker: RerankerPort, recorder: RecorderPort) -> RetrievalResult:
     """04 H1 to H4. Config A (11 section 8): vector top 5 only. Config B: vector + BM25, RRF, rerank."""
     if cfg.config_id == "A":
-        with recorder.stage("retrieve_vector"):
+        with run_stage(recorder, "retrieve_vector"):
             vector = search.vector_search(query, cfg.ret_rerank_top_n, filters)
-        recorder.hits("vector", vector)
         chunks = _in_order(search, vector)
+        recorder.hits("vector", hit_rows(vector, {c.chunk_id: c for c in chunks}))
         return RetrievalResult(vector, [], [], [ScoredChunk(c, h.score) for c, h in zip(chunks, vector)], "cosine")
 
-    with recorder.stage("retrieve_vector"):
+    with run_stage(recorder, "retrieve_vector"):
         vector = search.vector_search(query, cfg.ret_vector_k, filters)
-    with recorder.stage("retrieve_bm25"):
+    with run_stage(recorder, "retrieve_bm25"):
         bm25 = search.bm25_search(query, cfg.ret_bm25_k, filters)
-    with recorder.stage("fuse"):
+    with run_stage(recorder, "fuse"):
         fused = rrf_fuse([vector, bm25], cfg.ret_rrf_k, cfg.ret_fused_k)
-    with recorder.stage("rerank"):
-        reranked = rerank(query, _in_order(search, fused), cfg.ret_rerank_top_n, reranker)
+    # one lookup for every candidate, so each recorded list shows its document and page (11 section 9)
+    known = {c.chunk_id: c for c in search.get_chunks(sorted({h.chunk_id for h in vector + bm25}))}
+    with run_stage(recorder, "rerank"):
+        fused_chunks = [known[h.chunk_id] for h in fused if h.chunk_id in known]
+        reranked = rerank(query, fused_chunks, cfg.ret_rerank_top_n, reranker)
     for name, hits in (("vector", vector), ("bm25", bm25), ("fused", fused)):
-        recorder.hits(name, hits)
-    recorder.hits("reranked", [Hit(s.chunk.chunk_id, s.score, i + 1) for i, s in enumerate(reranked)])
+        recorder.hits(name, hit_rows(hits, known))
+    recorder.hits("reranked", hit_rows([Hit(s.chunk.chunk_id, s.score, i + 1) for i, s in enumerate(reranked)], known))
     return RetrievalResult(vector, bm25, fused, reranked, "rerank")
 
 
@@ -107,7 +111,8 @@ def _one_text_per_version(chunks: list[Chunk]) -> list[Chunk]:
         first = parts[0]
         text = "\n".join(p.text for p in parts)
         merged.append(Chunk(first.chunk_id, first.document_id, first.doc_key, first.title, first.version,
-                            first.effective_date, first.page, first.section, first.method, text, first.injection_suspect))
+                            first.effective_date, first.page, first.section, first.method, text, first.injection_suspect,
+                            getattr(first, "current", None)))
     return sorted(merged, key=lambda c: c.effective_date, reverse=True)
 
 

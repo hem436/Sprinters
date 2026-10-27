@@ -32,6 +32,7 @@ class Chunk:
     method: str
     text: str
     injection_suspect: bool = False
+    current: bool | None = None       # true when this is the current version of its doc_key (Myank fills it)
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,7 @@ class RouteDecision:
     standalone_query: str
     tool: str | None = None
     tool_args: dict = field(default_factory=dict)
-    reason: Literal["PLANNER", "RULE_OVERRIDE", "ROUTE_FALLBACK", "RULE_GREETING"] = "PLANNER"
+    reason: Literal["PLANNER", "RULE_OVERRIDE", "ROUTE_FALLBACK", "RULE_GREETING", "ROUTE_NO_TOOL"] = "PLANNER"
 
 
 @dataclass(frozen=True)
@@ -117,6 +118,8 @@ class CitationOut(BaseModel):
     section: str | None = None
     method: str | None = None
     url: str | None = None
+    snippet: str | None = None       # CHANGES DC-4 (Hemant): the cited passage, so the chat can show it
+    current: bool | None = None       # CHANGES DC-4: is this the current version; None when extraction does not say
     tool: str | None = None
     args: dict | None = None
     row_count: int | None = None

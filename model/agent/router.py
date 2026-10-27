@@ -11,8 +11,9 @@ _PROMPT = (Path(__file__).parent.parent / "prompts" / "route-v1.txt").read_text(
 
 # R1: identifiers that only the business data holds (contract 13 schema).
 _DATA_IDS = re.compile(r"\b(P-\d{3}|EXP-\d+|D-[A-Z]{2,}|LT-\d+|E\d{4})\b")
-# R1: words that ask for a computed number.
-_DATA_WORDS = re.compile(r"\b(total|how many|count|spent|spend|budget|headcount|sum|average|overspen\w*|over budget)\b", re.I)
+# R1: words that ask for a computed number. "budget" alone is not one: "what does the policy say about budget
+# overruns?" is a document question. "over budget" and a project id still are.
+_DATA_WORDS = re.compile(r"\b(total|how many|count|spent|spend|headcount|sum|average|overspen\w*|over (its |the )?budget)\b", re.I)
 # R1b: financial-report numbers (contract 14 section 7): a metric with a period, or a comparison word.
 _METRIC_WORDS = re.compile(r"\b(revenue|profit|pat|pbt|ebitda|margin|eps|income|cash flow|borrowings|segment)\b", re.I)
 _PERIOD = re.compile(r"\b(FY\s?\d{2,4}(-\d{2})?|20\d{2}|Q[1-4])\b", re.I)
@@ -60,13 +61,35 @@ def parse_planner(text: str, question: str) -> RouteDecision:
         return RouteDecision("DOCS", question, reason="ROUTE_FALLBACK")
 
 
-def route_question(question: str, context: list[Turn], llm: LLMPort, tools: ToolPort) -> tuple[RouteDecision, LLMReply | None]:
-    """R1: greetings by rule; otherwise ask the planner, then let the rules correct the route."""
+FORCE_DATA_NOTE = ("\n\nThe question needs business data. Reply with route {route}, the one tool that fits and its "
+                   "arguments, or \"tool\": null if no tool fits.")
+
+
+def route_question(question: str, context: list[Turn], llm: LLMPort, tools: ToolPort) -> tuple[RouteDecision, list[LLMReply]]:
+    """R1: greetings by rule; otherwise ask the planner, then let the rules correct the route.
+
+    A rule override changes the route but cannot choose a tool, so the planner is asked once more for the tool
+    (an extra model call only in that case). A data route that still has no tool is settled by settle_tool().
+    """
     if _GREETING.match(question):
-        return RouteDecision("CONVERSATIONAL", question, reason="RULE_GREETING"), None
+        return RouteDecision("CONVERSATIONAL", question, reason="RULE_GREETING"), []
     system = _PROMPT.replace("{tools}", json.dumps(tools.list_tools(), indent=1))
-    reply = llm.complete(system, _planner_input(question, context), purpose="route")
-    return apply_rules(parse_planner(reply.text, question), question), reply
+    user = _planner_input(question, context)
+    replies = [llm.complete(system, user, purpose="route")]
+    decision = apply_rules(parse_planner(replies[0].text, question), question)
+    if decision.reason == "RULE_OVERRIDE" and decision.tool is None:
+        replies.append(llm.complete(system, user + FORCE_DATA_NOTE.format(route=decision.route), purpose="route"))
+        second = parse_planner(replies[1].text, question)
+        decision = RouteDecision(decision.route, decision.standalone_query, second.tool, second.tool_args, "RULE_OVERRIDE")
+    return settle_tool(decision), replies
+
+
+def settle_tool(decision: RouteDecision) -> RouteDecision:
+    """A data route with no tool. SQL keeps its route, so the user hears "cannot answer this from the approved data"
+    (13 section 5, NO_TOOL). BOTH drops to documents only, so a document answer is not marked as a failed tool."""
+    if decision.route == "BOTH" and decision.tool is None:
+        return RouteDecision("DOCS", decision.standalone_query, reason="ROUTE_NO_TOOL")
+    return decision
 
 
 def _planner_input(question: str, context: list[Turn]) -> str:
