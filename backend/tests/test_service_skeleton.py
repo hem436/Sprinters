@@ -128,23 +128,26 @@ def test_secrets_never_serialised():
     assert "secrets" not in cfg.model_dump()
 
 
-# /health
+# /health (true or false values, as the web app's Health type reads them)
 
-def test_health_shape_and_degraded_without_qdrant(client):
+def test_health_is_down_without_business_db(client):
     resp = client.get("/health")
     assert resp.status_code == 200
     body = resp.json()
     assert set(body) == {"status", "qdrant", "llm", "ocr_available", "reranker", "db"}
-    assert body["qdrant"] == "down"
-    assert body["status"] == "degraded"
-    assert body["db"] == {"observability": "ok", "knowledge": "missing", "business": "missing"}
+    assert all(isinstance(body[k], bool) for k in ("qdrant", "llm", "ocr_available", "reranker", "db"))
+    assert (body["status"], body["db"], body["qdrant"]) == ("down", False, False)
 
 
-def test_health_ok_when_dependencies_are_up(client, monkeypatch):
+def test_health_degraded_then_ok(client, config, monkeypatch):
+    import sqlite3
+
+    sqlite3.connect(config.paths.resolve(config.paths.business_db)).close()
+    body = client.get("/health").json()
+    assert (body["status"], body["db"], body["llm"]) == ("degraded", True, True)
+
     async def qdrant_up(_config):
-        return "ok"
+        return True
 
     monkeypatch.setattr(health, "check_qdrant", qdrant_up)
-    body = client.get("/health").json()
-    assert body["status"] == "ok"
-    assert body["llm"] == "configured"
+    assert client.get("/health").json()["status"] == "ok"

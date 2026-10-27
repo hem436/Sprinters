@@ -1,7 +1,9 @@
-"""GET /health: {status, qdrant, llm, ocr_available, reranker, db} (contract 05).
+"""GET /health: {status, qdrant, llm, ocr_available, reranker, db} (contract 05), all true or false
+as the web app's Health type reads them (web/src/api/types.ts).
 
-Each check is cheap and time-limited, so /health never hangs. status is "ok" only when
-Qdrant is up, the LLM key is set and the observability store opens; otherwise "degraded".
+Each check is cheap and time-limited, so /health never hangs. db is true when the event store and
+business.db both open. status: "ok" when everything is true except optional OCR and reranker,
+"down" when the stores do not open, otherwise "degraded".
 """
 
 from __future__ import annotations
@@ -19,69 +21,53 @@ from app.config import Config, get_config
 router = APIRouter(tags=["health"])
 
 
-async def check_qdrant(config: Config) -> str:
+async def check_qdrant(config: Config) -> bool:
     try:
         async with httpx.AsyncClient(timeout=config.health.timeout_s) as client:
             resp = await client.get(f"{config.qdrant.url.rstrip('/')}/readyz")
-        return "ok" if resp.status_code == 200 else "down"
+        return resp.status_code == 200
     except httpx.HTTPError:
-        return "down"
+        return False
 
 
-def check_llm(config: Config) -> str:
-    # A live model check at start-up (contract 06, model_not_found) belongs to the agent's client.
+def check_llm(config: Config) -> bool:
     # The agent reads LLM_API_KEY (Groq directly) or PORTKEY_API_KEY (model/README.md).
-    keys = (config.secrets.llm_api_key, config.secrets.portkey_api_key)
-    return "configured" if any(keys) else "not_configured"
+    return bool(config.secrets.llm_api_key or config.secrets.portkey_api_key)
 
 
-def check_ocr(config: Config) -> bool:
-    return bool(config.secrets.gemini_api_key)
-
-
-def check_reranker() -> str:
-    return "ok" if importlib.util.find_spec("flashrank") is not None else "not_installed"
-
-
-def _check_sqlite(path: Path, create: bool) -> str:
+def _opens(path: Path, *, create: bool) -> bool:
     if not create and not path.exists():
-        return "missing"
+        return False
     try:
         if create:
             path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(path, timeout=1)
-        else:
-            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1)
+        uri = f"file:{path}" + ("" if create else "?mode=ro")
+        conn = sqlite3.connect(uri, uri=True, timeout=1)
         try:
             conn.execute("SELECT 1").fetchone()
         finally:
             conn.close()
-        return "ok"
+        return True
     except sqlite3.Error:
-        return "down"
+        return False
 
 
-def check_dbs(config: Config) -> dict[str, str]:
+def check_db(config: Config) -> bool:
     paths = config.paths
-    return {
-        # The service owns this store, so it may create the file.
-        "observability": _check_sqlite(paths.resolve(paths.observability_db), create=True),
-        # These are built by the ingestion pipeline and make_business_data.py.
-        "knowledge": _check_sqlite(paths.resolve(paths.knowledge_db), create=False),
-        "business": _check_sqlite(paths.resolve(paths.business_db), create=False),
-    }
+    return (_opens(paths.resolve(paths.observability_db), create=True)
+            and _opens(paths.resolve(paths.business_db), create=False))
 
 
 @router.get("/health")
 async def health(config: Config = Depends(get_config)) -> dict:
-    qdrant, db = await asyncio.gather(check_qdrant(config), asyncio.to_thread(check_dbs, config))
+    qdrant, db = await asyncio.gather(check_qdrant(config), asyncio.to_thread(check_db, config))
     llm = check_llm(config)
-    ready = qdrant == "ok" and llm == "configured" and db["observability"] == "ok"
+    status = "down" if not db else "ok" if (qdrant and llm) else "degraded"
     return {
-        "status": "ok" if ready else "degraded",
+        "status": status,
         "qdrant": qdrant,
         "llm": llm,
-        "ocr_available": check_ocr(config),
-        "reranker": check_reranker(),
+        "ocr_available": bool(config.secrets.gemini_api_key),
+        "reranker": importlib.util.find_spec("flashrank") is not None,
         "db": db,
     }
