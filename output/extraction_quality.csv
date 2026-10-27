@@ -1,0 +1,8 @@
+gold_page,kind,expected_class,actual_class,method,cer,wer,numeric_recall,table_cell_accuracy,quality_score,needs_review,ocr_tokens_in,ocr_tokens_out,ocr_cost_usd,stand_in
+ar25_p1_mdna.txt,financial_text,TEXT,TEXT,text,0.000,0.000,1.000,,1.000,False,,,,False
+ar25_p2_pl_text.txt,financial_text,TABLE_HEAVY,TABLE_HEAVY,text+tables,0.000,0.000,1.000,1.000,1.000,False,,,,False
+pl_scanned_p1.txt,financial_scanned,SCANNED,SCANNED,ocr,0.000,0.000,1.000,1.000,1.000,True,1328,443,0.001506,False
+policy_v1_scanned_p2.txt,scanned,SCANNED,SCANNED,ocr,0.000,0.000,1.000,1.000,1.000,True,1328,243,0.001006,False
+policy_v2_p2.txt,text,TABLE_HEAVY,TABLE_HEAVY,text+tables,0.000,0.000,1.000,1.000,1.000,False,,,,False
+note_vendor_meeting.txt,handwriting,SCANNED,SCANNED,ocr,0.000,0.000,1.000,,1.000,False,1338,130,0.000726,True
+note_ops_review.txt,handwriting,SCANNED,SCANNED,ocr,0.000,0.000,1.000,,1.000,False,1338,112,0.000681,True

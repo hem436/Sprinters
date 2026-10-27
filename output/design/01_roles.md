@@ -23,8 +23,8 @@ anyone about anything.
 |---|---|---|---|
 | Myank | 10, 14 (sections 1 to 5, 8), parts of 02 (knowledge tables), 03 | `app/ingestion/`, `app/services/retrieval/index_*`, `demo/documents/`, `evals/extraction_gold/` | WP-EX1 to WP-EX8 |
 | Hemant | 05 (screens and their API calls, with Sinngam), the dashboard list in 11 section 9; the merge checklist (section 4) | `web/`; `main` branch | WP-UI1 to WP-UI6, WP-MG |
-| Arka | 04, 06, 11 sections 6 to 8 (online checks, evaluation, A vs B), 07 (eval outputs), 15 | `app/agents/`, `app/guardrails/`, `app/prompts/`, `app/services/retrieval/search*`, `evals/`, `demo/script.md` | WP-AG1 to WP-AG7 |
-| Sinngam | 05 (endpoints, with Hemant), 11 sections 2 to 5 (store, recorder, cost, outcome storage), 13, 14 section 6 (tools), parts of 02 (business and event tables), 08 | `app/main.py`, `app/api/`, `app/tools/`, `app/observability/`, `scripts/make_business_data.py`, `docker-compose.yml`, `config/` | WP-BE1 to WP-BE8 |
+| Arka | 04, 06, 11 sections 6 to 8 (online checks, evaluation, A vs B), 07 (eval outputs), 15 | `model/` (agent code, prompts, tests, eval set and runner), `demo/script.md` | WP-AG1 to WP-AG7 |
+| Sinngam | 05 (endpoints, with Hemant), 11 sections 2 to 5 (store, recorder, cost, outcome storage), 13, 14 section 6 (tools), parts of 02 (business and event tables), 08 | `backend/` (FastAPI app, routes, tools, event store, business data script, config), `docker-compose.yml` | WP-BE1 to WP-BE8 |
 | Everyone | 00, 09, 12, `assumptions.md` | `README.md`, `evals/facts.md` | WP-0, WP-X |
 
 ## 3. Interfaces between the owners

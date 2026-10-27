@@ -1,0 +1,16 @@
+Consolidated Statement of Profit and Loss
+for the year ended 31 March 2025
+(₹ in crore)
+Particulars  Note  Year ended 31 March 2025  Year ended 31 March 2024
+Revenue from operations  21  11,256.00  10,050.00
+Other income  22  244.00  150.00
+Total income  11,500.00  10,200.00
+Expenses
+Employee benefits expense  23  4,000.00  3,600.00
+Finance costs  24  150.00  100.00
+Depreciation and amortisation expense  25  350.00  300.00
+Total expenses  4,500.00  4,000.00
+Profit before tax  7,000.00  6,200.00
+Total tax expense  1,750.00  1,550.00
+Profit for the year  5,250.00  4,650.00
+Basic EPS (₹)  45.67  40.12

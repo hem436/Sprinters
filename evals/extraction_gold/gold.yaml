@@ -1,0 +1,42 @@
+# Extraction gold set (contract 10 section 10). Files are in demo/documents/.
+# stand_in: true = a generated image; replace it with a real photo and type its .txt by hand.
+- name: ar25_p1_mdna
+  file: company-a-annual-report-fy2024-25.pdf
+  page: 1
+  kind: financial_text
+  expected_class: TEXT
+  note: 'two-column page: checks the reading order rule'
+- name: ar25_p2_pl_text
+  file: company-a-annual-report-fy2024-25.pdf
+  page: 2
+  kind: financial_text
+  expected_class: TABLE_HEAVY
+- name: pl_scanned_p1
+  file: company-a-pl-scanned.pdf
+  page: 1
+  kind: financial_scanned
+  expected_class: SCANNED
+- name: policy_v1_scanned_p2
+  file: travel-policy-v1-scanned.pdf
+  page: 2
+  kind: scanned
+  expected_class: SCANNED
+- name: policy_v2_p2
+  file: travel-policy-v2.pdf
+  page: 2
+  kind: text
+  expected_class: TABLE_HEAVY
+  note: running header and footer are removed, so the gold has none
+- name: note_vendor_meeting
+  file: note-vendor-meeting-12-oct.jpg
+  page: 1
+  kind: handwriting
+  expected_class: SCANNED
+  stand_in: true
+- name: note_ops_review
+  file: note-ops-review-19-oct.jpg
+  page: 1
+  kind: handwriting
+  expected_class: SCANNED
+  stand_in: true
+  note: stored on its side (EXIF orientation 6)

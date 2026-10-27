@@ -1,0 +1,12 @@
+4 Travel
+4.1 Flights
+Book economy class for flights under 6 hours. Business class needs approval from a director.
+4.2 Per diem
+The per diem covers meals and local travel for each full day away from the home city.
+City  Per diem (₹ a day)
+Mumbai  1,500
+Delhi  1,400
+Bengaluru  1,400
+Other cities  1,000
+4.3 Hotels
+Stay in a hotel from the approved list. A hotel outside the list needs approval from the travel desk.
