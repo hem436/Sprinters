@@ -1,4 +1,5 @@
 """Rules A1 to A4 and G1 (contract 04): evidence, the answer prompt, the answer JSON, the fixed fallback texts."""
+import html
 import json
 import re
 from pathlib import Path
@@ -28,11 +29,13 @@ def build_evidence(ranked: list[ScoredChunk], conflicts: list[Conflict], tools: 
                    max_tokens: int) -> list[Evidence]:
     """04 A1 and A4: number the evidence, tool results first (T1...), then chunks by rank (E1...).
 
-    Chunks are dropped from the lowest rank once the budget is used. Other versions found by rule C1 come last.
+    Each chunk is followed at once by its other versions found by rule C1, so a conflict is never cut in half by the
+    budget (review #25). Chunks are dropped from the lowest rank once the budget is used.
     """
     items = [Evidence(f"T{i}", "tool", _tool_text(t), tool=t) for i, t in enumerate(tools, start=1)]
     used = sum(estimate_tokens(e.text) for e in items)
-    chunks = [s.chunk for s in ranked] + [v for c in conflicts for v in c.versions]
+    versions = {(c.doc_key, c.section): c.versions for c in conflicts}
+    chunks = [v for s in ranked for v in [s.chunk, *versions.get((s.chunk.doc_key, s.chunk.section), [])]]
     seen = set()
     for chunk in chunks:
         if chunk.chunk_id in seen:
@@ -70,11 +73,23 @@ REPAIR_INSTRUCTION = ("Your last reply was not valid JSON for the required shape
 
 
 def _evidence_tag(e: Evidence) -> str:
+    """Escaped, so a document cannot close its own tag and pretend to be other evidence (review #25)."""
     if e.kind == "tool":
-        return f'<tool_result id="{e.id}" tool="{e.tool.tool}" status="{e.tool.status}">{e.text}</tool_result>'
+        return (f'<tool_result id="{e.id}" tool="{_attr(e.tool.tool)}" status="{e.tool.status}">'
+                f'{_text(e.text)}</tool_result>')
     c = e.chunk
-    return (f'<evidence id="{e.id}" doc="{c.title}" version="{c.version}" effective="{c.effective_date}" '
-            f'page="{c.page}" section="{c.section}">{e.text}</evidence>')
+    return (f'<evidence id="{e.id}" doc="{_attr(c.title)}" version="{_attr(c.version)}" '
+            f'effective="{_attr(c.effective_date)}" page="{c.page}" section="{_attr(c.section)}">'
+            f'{_text(e.text)}</evidence>')
+
+
+def _attr(value: str) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def _text(value: str) -> str:
+    """Only the angle brackets: the text keeps its own "&" and quotes, so numbers and names reach the model as printed."""
+    return value.replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _tool_text(result: ToolResult) -> str:

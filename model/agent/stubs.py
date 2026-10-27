@@ -23,6 +23,8 @@ class FakeLLM:
         if not queue:
             raise RuntimeError(f"FakeLLM has no reply left for purpose {purpose!r}")
         reply = queue.pop(0)
+        if isinstance(reply, Exception):
+            raise reply                      # a prepared failure, for example LLMError("timeout")
         text = reply if isinstance(reply, str) else json.dumps(reply)
         return LLMReply(text=text, model="fake", tokens_in=len(system + user) // 4, tokens_out=len(text) // 4)
 
@@ -54,6 +56,10 @@ class StubTools:
     catalogue: list[dict] = field(default_factory=lambda: [
         {"name": "budget_status", "description": "Budget, spent, remaining and % used for one project, year and category",
          "args": {"project_id": "P-ddd", "fiscal_year": "FYyyyy-yy", "category": "TRAVEL|MEALS|...|null"}},
+        {"name": "asset_compliance", "description": "Assets, not encrypted and patch overdue, per department",
+         "args": {"dept_id": "D-XXX|null", "asset_type": "LAPTOP|DESKTOP|PHONE|null"}},
+        {"name": "metric_compare", "description": "One financial metric compared across periods or companies",
+         "args": {"metric": "revenue|...", "company": "name", "periods": ["FYyyyy-yy"]}},
     ])
     calls: list[tuple[str, dict]] = field(default_factory=list)
 
@@ -104,9 +110,9 @@ class NullRecorder:
         self.hit_lists[list_name] = list(hits)
 
     def llm_call(self, purpose, model, usage=None, latency_ms=None, prompt_version=None, *, cache_hit=False,
-                 estimate=None) -> None:
+                 estimate=None, raw_output=None) -> None:
         self.llm_calls.append({"purpose": purpose, "model": model, "usage": usage, "estimate": estimate,
-                               "prompt_version": prompt_version, "cache_hit": cache_hit})
+                               "prompt_version": prompt_version, "cache_hit": cache_hit, "raw_output": raw_output})
 
     def tool_call(self, tool, args, status, row_count=0, latency_ms=None, *, result_summary=None,
                   error_category=None, version=None) -> str:

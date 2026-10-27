@@ -82,18 +82,11 @@ config decides the model there). Check the model names on the provider's list on
 
 ## Open items between the parts
 
-1. **One copy of the outcome rules** (Sinngam and Arka). `backend/app/observability/outcome.py` repeats ours without
-   `OK_SMALLTALK` (CHANGES DC-1), so a greeting is SUCCESS for the user and FAILED on the dashboard. Proposal:
-   `finish()` takes `outcome`, `reason_code` and `confidence` from the agent when given, and uses its own rules only
-   when the agent did not run (a system error before the agent). The integration test marks this as a known failure.
-2. **The API image must contain `model/`** (Sinngam). `docker-compose.yml` builds only `./backend`. Proposal: build
-   context at the repo root, the Dockerfile copies `model/` and installs `model/requirements.txt`, `PYTHONPATH`
-   includes `/app/model`.
-3. **Model names in one place** (Sinngam and Arka). `config/app.yaml` has `llm.route_model` and `llm.answer_model`;
-   `llm_from_env` reads `LLM_MODEL`. Proposal: names from `app.yaml`, keys only in `.env`; add an `agent:` section
-   with the keys of `agent/config.py`.
-4. **Search** (Myank): done. `extraction/ingestion/search.py` `SearchService` fits `SearchPort`; checked by ingesting
-   two policy PDFs with his pipeline and asking the agent (conflict found, both versions cited with page and section).
+1. **One copy of the outcome rules**: done. `finish()` receives the agent's `outcome`, `reason_code` and `confidence`
+   (CHANGES DC-1); the integration test checks that the store holds what the user saw.
+2. **The API image must contain `model/`** (Sinngam): `docker-compose.yml` builds only `./backend`.
+3. **Model names in one place** (Sinngam and Arka): names from `app.yaml`, keys only in `.env`.
+4. **Search** (Myank): done; `SearchService` fits `SearchPort`. Open: a `current` field on `Chunk`.
 5. **Front end** (Hemant): add `OK_SMALLTALK` to `ReasonCode`; `page` can be null for DOCX and TXT sources.
 
 ## Next

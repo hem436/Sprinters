@@ -6,6 +6,7 @@ import logging
 import re
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Iterator
 from dataclasses import asdict, replace
 
@@ -14,20 +15,27 @@ from agent.graph import AgentState, build_graph
 from agent.outcome import QueryFacts, classify, confidence, has_relevant_evidence
 from agent.ports import LLMPort, RecorderPort, RerankerPort, SearchPort, ToolPort
 from agent.recording import OutcomeFactsOut, citation_rows
+from agent.safety import mask_pii
 from agent.types import CitationOut, Evidence, QueryResponse, Turn, UsageOut
 
 log = logging.getLogger(__name__)
 
 SYSTEM_ERROR_TEXT = "Something went wrong while answering. The error is recorded; please try again."
 SNIPPET_CHARS = 300      # enough for one or two sentences in the chat's source viewer
+CONFIG_IDS = ("A", "B")  # 11 section 8
 
 
 class SessionStore:
-    """Conversation turns per session, in memory. Enough for one API process (contract 08); M1 picks from it."""
+    """Conversation turns per session, in memory, bounded (contract 08); rule M1 picks from it.
 
-    def __init__(self):
-        self._turns: dict[str, list[Turn]] = {}
+    Each session keeps its last `max_messages`; the store keeps the `max_sessions` used most recently.
+    """
+
+    def __init__(self, max_messages: int = 20, max_sessions: int = 1000):
+        self._turns: OrderedDict[str, list[Turn]] = OrderedDict()
         self._lock = threading.Lock()
+        self.max_messages = max_messages
+        self.max_sessions = max_sessions
 
     def history(self, session_id: str) -> list[Turn]:
         with self._lock:
@@ -35,7 +43,10 @@ class SessionStore:
 
     def add(self, session_id: str, *turns: Turn) -> None:
         with self._lock:
-            self._turns.setdefault(session_id, []).extend(turns)
+            kept = (self._turns.pop(session_id, []) + list(turns))[-self.max_messages:]
+            self._turns[session_id] = kept                       # most recently used goes last
+            while len(self._turns) > self.max_sessions:
+                self._turns.popitem(last=False)
 
 
 class Agent:
@@ -66,6 +77,9 @@ class Agent:
 
     def _run(self, question: str, session_id: str, recorder: RecorderPort, filters: dict | None,
              config_id: str | None) -> Iterator[tuple[str, object]]:
+        if config_id is not None and config_id not in CONFIG_IDS:
+            # review #25: an unknown config must not silently run B; the route turns this into a 422
+            raise ValueError(f"config_id must be one of {CONFIG_IDS}, not {config_id!r}")
         started = time.perf_counter()
         cfg = replace(self.cfg, config_id=config_id) if config_id else self.cfg
         inputs = {"question": question, "filters": filters, "cfg": cfg, "recorder": recorder,
@@ -168,14 +182,18 @@ def _citation(e: Evidence) -> CitationOut:
 
 
 def _snippet(text: str) -> str:
-    return text if len(text) <= SNIPPET_CHARS else text[:SNIPPET_CHARS].rsplit(" ", 1)[0] + " ..."
+    """At most SNIPPET_CHARS, cut at the last space or line break, so an amount such as ₹4,35,500 is never cut."""
+    if len(text) <= SNIPPET_CHARS:
+        return text
+    cut = re.match(r"(?s)(.*)\s", text[:SNIPPET_CHARS + 1])
+    return (cut.group(1).rstrip() if cut else text[:SNIPPET_CHARS]) + " ..."
 
 
 def _record(recorder: RecorderPort, state: dict, response: QueryResponse, cfg: AgentConfig) -> None:
     """11 section 3: citations, context turns, then finish() once. The recorder prices the calls; the cost comes
     back into the response (05 usage.cost_usd)."""
     evidence = {e.id: e for e in state.get("evidence", [])}
-    recorder.citations(citation_rows(state.get("citation_checks", []), evidence))
+    recorder.citations(citation_rows(state.get("citation_checks", []), evidence, state.get("tool_call_ids", [])))
     recorder.context_turns([{"role": t.role, "text": t.text} for t in state.get("context", [])])
     facts = _facts(state)
     retrieval = state.get("retrieval")
@@ -186,11 +204,14 @@ def _record(recorder: RecorderPort, state: dict, response: QueryResponse, cfg: A
             blocked=facts.blocked, fallback=facts.fallback, tool_failed=facts.tool_needed and facts.tool_failed,
             conflict=facts.conflict, grounding_score=state.get("grounding"),
             top_score=retrieval.top_score if retrieval else None),
-        normalized_query=state["route"].standalone_query if state.get("route") else None,
+        # review #25: no personal data reaches the store from the agent's side either
+        normalized_query=mask_pii(state["route"].standalone_query)[0] if state.get("route") else None,
         retrieval_relevant=has_relevant_evidence(retrieval.top_score, retrieval.score_kind, cfg) if retrieval else None,
-        grounding_detail=[asdict(c) for c in state.get("claim_checks", [])],
+        grounding_detail=[{**asdict(c), "text": mask_pii(c.text)[0]} for c in state.get("claim_checks", [])],
         safety_flags=state.get("safety_flags", []),
         error_category=state.get("system_error"),
+        # one copy of the outcome rules (CHANGES DC-1): the store keeps exactly what the user saw
+        outcome=response.outcome, reason_code=response.reason_code, confidence=response.confidence,
     )
     if result is not None:
         response.usage.cost_usd = result.cost_usd

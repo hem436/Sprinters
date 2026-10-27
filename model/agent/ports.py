@@ -54,7 +54,8 @@ class RecorderPort(Protocol):
     def hits(self, list_name: str, hits: list[dict]) -> None: ...
 
     def llm_call(self, purpose: str, model: str, usage: Any = None, latency_ms: int | None = None,
-                 prompt_version: str | None = None, *, cache_hit: bool = False, estimate: Any = None) -> None: ...
+                 prompt_version: str | None = None, *, cache_hit: bool = False, estimate: Any = None,
+                 raw_output: str | None = None) -> None: ...
 
     def tool_call(self, tool: str, args: dict | None, status: str, row_count: int = 0, latency_ms: int | None = None,
                   *, result_summary: str | None = None, error_category: str | None = None,
@@ -67,6 +68,8 @@ class RecorderPort(Protocol):
     def finish(self, answer: str | None, route: str | None, grounding_score: float | None = None, *,
                facts: Any = None, normalized_query: str | None = None, retrieval_relevant: bool | None = None,
                grounding_detail: Any = None, safety_flags: list[str] = (), error_category: str | None = None,
-               http_status: int = 200) -> Any:
-        """Returns a result with cost_usd and cost_estimated (backend FinishResult)."""
+               http_status: int = 200, outcome: str | None = None, reason_code: str | None = None,
+               confidence: str | None = None) -> Any:
+        """Returns a result with cost_usd and cost_estimated (backend FinishResult). The agent passes its own
+        outcome, reason_code and confidence, so the store holds what the user saw (one copy of the rules)."""
         ...
