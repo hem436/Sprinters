@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from ingestion.fin_store import FIN_SCHEMA
 
 from app.tools.registry import ToolRegistry
 
@@ -14,7 +15,7 @@ CRORE, MILLION = 10_000_000, 1_000_000
 
 def _seed(path: Path) -> None:
     conn = sqlite3.connect(path)
-    conn.executescript((Path(__file__).parent / "fin_schema.sql").read_text())
+    conn.executescript(FIN_SCHEMA)                  # Myank's schema and v_fact_current, as extraction writes them
     conn.executemany("INSERT INTO report VALUES (?, ?, 'ANNUAL', ?, ?, NULL)", [
         ("R-A-24", "Company A", "FY2023-24", "2024-06-01"),
         ("R-A-25", "Company A", "FY2024-25", "2025-06-01"),
