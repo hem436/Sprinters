@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { USE_MOCKS } from '../api'
 import { useAuth } from '../hooks/useAuth'
 import { HealthBadge } from './HealthBadge'
+import { ThemeToggle } from './ThemeToggle'
 
 // Two simple views, like Verba: employees see the chat; admins and reviewers see the dashboard first.
 
@@ -70,6 +71,7 @@ export function Layout() {
               Admin
             </NavLink>
           )}
+          <ThemeToggle />
         </nav>
 
         {admin ? (

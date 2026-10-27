@@ -18,7 +18,7 @@ export function CitationChip({ citation }: { citation: Citation }) {
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="inline-flex items-center gap-1.5 rounded-full border border-violet-300 bg-violet-50 px-2.5 py-1 text-xs text-violet-900 hover:bg-violet-100 dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-violet-200"
+          className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-xs text-slate-900 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
         >
           <span className="font-semibold">{citation.id}</span>
           <span className="font-mono">{citation.tool}</span>
@@ -38,7 +38,7 @@ export function CitationChip({ citation }: { citation: Citation }) {
     <Link
       to={toAppPath(citation.url)}
       title={`${citation.title} v${citation.version}, page ${citation.page}${citation.section ? `, ${citation.section}` : ''}`}
-      className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-xs text-sky-900 hover:bg-sky-100 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-200"
+      className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs text-indigo-900 hover:bg-indigo-100 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-200"
     >
       <span className="font-semibold">{citation.id}</span>
       <span className="truncate">{citation.title}</span>

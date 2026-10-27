@@ -275,8 +275,8 @@ function HitList({ title, hits }: { title: string; hits: RankedHit[] }) {
 
 function LatencyBars({ p }: { p: DrillDown['performance'] }) {
   const parts = [
-    ['Retrieval', p.retrieval_ms, 'bg-sky-500'],
-    ['Tool', p.tool_ms, 'bg-violet-500'],
+    ['Retrieval', p.retrieval_ms, 'bg-indigo-300'],
+    ['Tool', p.tool_ms, 'bg-slate-500'],
     ['LLM', p.llm_ms, 'bg-indigo-500'],
   ] as const
   const max = Math.max(p.total_ms, 1)

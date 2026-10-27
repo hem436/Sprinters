@@ -6,6 +6,7 @@ import type { ReasonCode } from '../api/types'
 import { renderWithProviders } from '../test/render'
 import { CitationChip } from './CitationChip'
 import { FeedbackBar } from './FeedbackBar'
+import { ThemeToggle } from './ThemeToggle'
 import { OutcomeBadge } from './ui'
 
 describe('CitationChip', () => {
@@ -81,5 +82,21 @@ describe('FeedbackBar', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Helpful' }))
     expect(await screen.findByText(/already saved/)).toBeInTheDocument()
     spy.mockRestore()
+  })
+})
+
+describe('ThemeToggle', () => {
+  it('cycles system, light and dark and sets the dark class', async () => {
+    localStorage.removeItem('ka.theme')
+    renderWithProviders(<ThemeToggle />)
+    const btn = screen.getByRole('button', { name: /System theme/ })
+    await userEvent.click(btn)
+    expect(screen.getByRole('button', { name: /Light theme/ })).toBeInTheDocument()
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+    await userEvent.click(screen.getByRole('button', { name: /Light theme/ }))
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(localStorage.getItem('ka.theme')).toBe('dark')
+    document.documentElement.classList.remove('dark')
+    localStorage.removeItem('ka.theme')
   })
 })
