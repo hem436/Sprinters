@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -25,7 +25,7 @@ afterEach(() => {
 describe('every route renders on mock data', () => {
   it.each([
     ['/dashboard', 'Total queries'],
-    ['/queries', 'Query executions'],
+    ['/queries', 'Recent queries'],
     ['/eval', 'A vs B comparison'],
     ['/admin/documents', 'Travel and Expense Policy'],
     ['/admin/documents/doc_88d2', 'Extraction report'],
@@ -42,6 +42,34 @@ describe('every route renders on mock data', () => {
     expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to chat' })).toBeInTheDocument()
+  })
+})
+
+describe('admin dashboard', () => {
+  it('shows the 10 KPIs, one chart and the recent queries', async () => {
+    renderWithProviders(<App />, '/dashboard')
+    expect(await screen.findAllByTestId('kpi-tile', {}, { timeout: 3000 })).toHaveLength(10)
+    expect(screen.getByRole('region', { name: 'Outcome over time' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Recent queries' })).toBeInTheDocument()
+  })
+
+  it('filters recent queries with a chip and opens the query detail from a row', async () => {
+    renderWithProviders(<App />, '/dashboard')
+    const recent = await screen.findByRole('region', { name: 'Recent queries' })
+    await userEvent.click(screen.getByRole('button', { name: 'Partial' }))
+    await screen.findAllByText('PARTIAL', {}, { timeout: 3000 })
+    expect(recent.querySelectorAll('tbody tr').length).toBeGreaterThan(0)
+    expect(recent.textContent).not.toMatch(/SUCCESS/)
+    await userEvent.click(recent.querySelector('tbody tr a') as HTMLElement)
+    expect(await screen.findByText('Query drill-down', {}, { timeout: 3000 })).toBeInTheDocument()
+  })
+
+  it('changes the time range', async () => {
+    renderWithProviders(<App />, '/dashboard')
+    await screen.findAllByTestId('kpi-tile', {}, { timeout: 3000 })
+    const range = within(screen.getByRole('group', { name: 'Time range' }))
+    await userEvent.click(range.getByRole('button', { name: 'All' }))
+    expect(range.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true')
   })
 })
 
