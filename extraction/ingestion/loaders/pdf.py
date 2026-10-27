@@ -116,7 +116,10 @@ def _text_blocks(result: PageResult, info: dict, repeated: tuple[set[str], set[s
     body = info["body"]
     kept = []
     for i, ln in enumerate(lines):
-        if is_edge_noise(ln.text, i, len(lines), repeated, is_heading=heading_level(ln, body) is not None):
+        # "(₹ in crore)" sits at the top of most statement pages: it repeats, but it is the table's unit, not noise
+        is_unit_line = len(ln.text.strip()) <= 40 and bool(find_unit(ln.text))
+        if not is_unit_line and is_edge_noise(ln.text, i, len(lines), repeated,
+                                              is_heading=heading_level(ln, body) is not None):
             number = printed_page_number(ln.text) if (i < EDGE_LINES or i >= len(lines) - EDGE_LINES) else None
             if number and not result.printed_page:
                 result.printed_page = number
@@ -125,7 +128,12 @@ def _text_blocks(result: PageResult, info: dict, repeated: tuple[set[str], set[s
         kept.append(ln)
     if info.get("two_columns"):
         result.flags.append("TWO_COLUMN")
-    body = body_size(kept) or body             # the body font, without the running header and footer
+    # the body font, without the running header and footer; on a page with very few lines (a statement page with a
+    # title, a caption and a table) the most common size can be the title's, so take the smallest size instead
+    if len(kept) >= 4:
+        body = body_size(kept) or body
+    elif kept:
+        body = min(ln.size for ln in kept)
 
     # place each table among the lines by its top; the line just above it is its caption
     tables = sorted(info["tables"], key=lambda t: t["bbox"][1])

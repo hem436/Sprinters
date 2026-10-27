@@ -117,7 +117,35 @@ Each raises `ingestion.errors.IngestError` with `code`, `http_status` and `to_di
   replaced by the total. So "Total assets" is checked against the two subtotals without knowing the layout. A total
   line with no rows of its own above it is recorded as unverified, not as a failure.
 
+## Demo corpus and extraction quality (WP-EX7)
+
+```bash
+.venv/bin/python scripts/make_demo_documents.py          # demo/documents/ and evals/extraction_gold/, from evals/facts.md
+.venv/bin/python -m ingestion ingest ../demo/documents/manifest.yaml
+.venv/bin/python ../evals/extraction_eval.py             # output/extraction_quality.csv (add --no-ocr for a free run)
+```
+
+| Document | Kind | Tests |
+|---|---|---|
+| `travel-policy-v1-scanned.pdf` | scanned PDF, v1.0 | OCR, per diem table goes to review, version conflict with v2.0 |
+| `travel-policy-v2.pdf` | text PDF, v2.0, running header and footer | cleaning, sections 4.2 and 4.5, BOTH questions with P-104 |
+| `it-security-sop.docx` | Word | sections, exact ID `POL-HR-014`, a table |
+| `onboarding-faq.txt` | text | sections, the planted injection (rule S2) |
+| `note-*.jpg` | handwriting stand-ins (one stored on its side) | OCR, EXIF fix |
+| `company-a-annual-report-fy2024-25.pdf` | two-column MD&A, consolidated and standalone P&L, segments | contract 14 facts, restatement, "why" questions |
+| `company-a-annual-report-fy2023-24.pdf` | older P&L | newest report wins, restated |
+| `company-a-pl-scanned.pdf` | the P&L page scanned | financial_scanned gold page |
+
+The documents come from the draft facts sheet `evals/facts.md`; change the facts there and re-run the generator.
+The handwritten notes are stand-ins drawn in a handwriting font: replace them with real photos and type their gold
+text by hand, or the handwriting score means little.
+
+First run on 27 Oct 2026 (real OCR, `gemini-3.5-flash`): 7 of 7 pages in the right class; CER 0.000 and numeric
+recall 1.000 on every page; the 2 scanned table pages wait for review as rule X7 asks. These pages are generated, so
+the scores are an upper bound: real scans and real handwriting will score lower.
+
 ## Not done yet
 
-- WP-EX7 demo documents, gold set and `extraction_eval.py`; WP-EX8 ingest of the demo corpus.
+- Real photos of 2 handwritten notes and their typed gold text; optionally a page of a real public annual report.
+- WP-EX8 ingest of the demo corpus with the real models; connection to Sinngam's routes.
 - Tesseract fallback (MAY in contract 10).
