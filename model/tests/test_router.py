@@ -50,8 +50,8 @@ def test_reported_policy_question_stays_docs():
 
 
 def test_reported_both_without_a_tool_drops_to_docs():
-    """"average" + "why" force BOTH, but no tool fits approval time: answer from documents, not a failed tool."""
-    decision, llm = _route("Why is the average approval time long?", DOCS_NO_TOOL, second_reply=DOCS_NO_TOOL)
+    """The rules force BOTH, but no tool fits approval time: answer from documents, not a failed tool."""
+    decision, llm = _route("Why is the average Finance approval time long?", DOCS_NO_TOOL, second_reply=DOCS_NO_TOOL)
     assert (decision.route, decision.tool, decision.reason, len(llm.calls)) == ("DOCS", None, "ROUTE_NO_TOOL", 2)
 
 

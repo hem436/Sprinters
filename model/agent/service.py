@@ -54,12 +54,19 @@ class Agent:
                  cfg: AgentConfig | None = None, sessions: SessionStore | None = None):
         self.cfg = cfg or AgentConfig()
         self.sessions = sessions or SessionStore()
-        self.search, self.tools = search, tools          # the eval runner reads chunks and switches tool failure
+        self.search, self.tools = search, tools          # the eval runner reads chunks from search
+        self._llm, self._reranker = llm, reranker
         self._graph = build_graph(search, tools, llm, reranker)
+
+    def with_tools(self, tools: ToolPort) -> "Agent":
+        """The same agent with other tools. The eval's tool-failure cases use this, so the registry that serves real
+        users is never switched to failure (review #25)."""
+        return Agent(self.search, tools, self._llm, self._reranker, self.cfg, self.sessions)
 
     def answer(self, question: str, session_id: str, recorder: RecorderPort, filters: dict | None = None,
                config_id: str | None = None) -> QueryResponse:
         """05 POST /query: the same run as the stream, keeping only the final response."""
+        _check_config(config_id)
         for event, data in self._run(question, session_id, recorder, filters, config_id):
             if event == "done":
                 return data
@@ -72,15 +79,16 @@ class Agent:
         Order: status (one per stage) ... citations, token (the checked answer, word by word), done. On a system
         error: status ..., error, done. The answer is sent only after the checks (V1, V2, V4), so the user never
         sees text that a check later removes.
+
+        Not a generator itself: a bad config_id raises here, before the route starts the response, so it can give a
+        422 and not a broken stream (review #25).
         """
-        for event, data in self._run(question, session_id, recorder, filters, config_id):
-            yield event, data.model_dump() if event == "done" else data
+        _check_config(config_id)
+        run = self._run(question, session_id, recorder, filters, config_id)
+        return ((event, data.model_dump() if event == "done" else data) for event, data in run)
 
     def _run(self, question: str, session_id: str, recorder: RecorderPort, filters: dict | None,
              config_id: str | None) -> Iterator[tuple[str, object]]:
-        if config_id is not None and config_id not in CONFIG_IDS:
-            # review #25: an unknown config must not silently run B; the route turns this into a 422
-            raise ValueError(f"config_id must be one of {CONFIG_IDS}, not {config_id!r}")
         started = time.perf_counter()
         cfg = replace(self.cfg, config_id=config_id) if config_id else self.cfg
         inputs = {"question": question, "filters": filters, "cfg": cfg, "recorder": recorder,
@@ -107,6 +115,12 @@ class Agent:
             for piece in re.findall(r"\S+\s*", response.answer_markdown):
                 yield "token", {"text": piece}
         yield "done", response
+
+
+def _check_config(config_id: str | None) -> None:
+    """11 section 8: an unknown config must not silently run B; the route turns this ValueError into a 422."""
+    if config_id is not None and config_id not in CONFIG_IDS:
+        raise ValueError(f"config_id must be one of {CONFIG_IDS}, not {config_id!r}")
 
 
 def _response(state: dict, query_id: str, cfg: AgentConfig, latency_ms: int) -> QueryResponse:
@@ -210,7 +224,7 @@ def _record(recorder: RecorderPort, state: dict, response: QueryResponse, cfg: A
         retrieval_relevant=has_relevant_evidence(retrieval.top_score, retrieval.score_kind, cfg) if retrieval else None,
         grounding_detail=[{**asdict(c), "text": mask_pii(c.text)[0]} for c in state.get("claim_checks", [])],
         safety_flags=state.get("safety_flags", []),
-        error_category=state.get("system_error"),
+        error_category=state.get("system_error") or ("LLM_ERROR" if facts.llm_failed else None),
         # one copy of the outcome rules (CHANGES DC-1): the store keeps exactly what the user saw
         outcome=response.outcome, reason_code=response.reason_code, confidence=response.confidence,
     )

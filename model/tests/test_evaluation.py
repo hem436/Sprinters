@@ -9,7 +9,7 @@ from agent.evaluation import (RESULT_COLUMNS, EvalCase, criteria_ok, hit_at_k, l
                               reciprocal_rank, run_eval, write_comparison_csv, write_results_csv)
 from agent.service import Agent
 from agent.stubs import FakeLLM, NullRecorder, StubSearch, StubTools
-from agent.types import Hit, ToolResult
+from agent.types import Hit
 
 from tests.test_answer_checks import P104
 
@@ -37,16 +37,7 @@ def test_measures():
     assert hit_at_k(found, []) is None and reciprocal_rank(found, [{"doc_key": "z"}]) == 0.0
     assert hit_at_k(found * 3, [{"doc_key": "b"}], k=1) == 0        # only the top k counts
     assert criteria_ok("Over by ₹35,500 [T1].", ["35,500"], ["APPROVED"])
-    assert not criteria_ok("APPROVED", [], ["approved"])
-
-
-class FailingTools(StubTools):
-    simulate_failure = False
-
-    def run_tool(self, name, args):
-        if self.simulate_failure:
-            return ToolResult(name, "TIMEOUT", args=args, message="simulated")
-        return super().run_tool(name, args)
+    assert not criteria_ok("APPROVED", [], ["APPROVED"])
 
 
 def test_run_eval_end_to_end(corpus, table_reranker):
@@ -74,17 +65,18 @@ def test_run_eval_end_to_end(corpus, table_reranker):
         def vector_search(self, query, k, filters=None):
             return [Hit("c_sop_laptop", 0.8, 1)] if "POL" in query else [Hit("c_v2_perdiem", 0.1, 1)]
 
-    search, tools = Search(corpus), FailingTools(results={"budget_status": P104})
+    search, tools = Search(corpus), StubTools(results={"budget_status": P104})
     agent = Agent(search, tools, llm, table_reranker({"POL-HR-014": 0.9}))
     stored = []
-    run = run_eval(agent, search, cases, "B", lambda q, s, c: NullRecorder(cost_usd="0.000400"), tools=tools,
+    run = run_eval(agent, search, cases, "B", lambda q, s, c: NullRecorder(cost_usd="0.000400"),
                    on_case=stored.append)
 
     by_id = {r["case_id"]: r for r in run["results"]}
     assert [r["passed"] for r in run["results"]] == [1, 1, 1, 1], run["results"]
     assert by_id["X01"]["hit_at_5"] == 1 and by_id["X01"]["reciprocal_rank"] == 1.0
     assert by_id["S01"]["hit_at_5"] is None and by_id["S01"]["tool_ok"] == 1
-    assert by_id["T01"]["reason_code"] == "TOOL_FAILED" and tools.simulate_failure is False   # restored after the case
+    assert by_id["T01"]["reason_code"] == "TOOL_FAILED"
+    assert agent.tools is tools and tools.run_tool("budget_status", {}).status == "OK"   # users' tools untouched
     assert by_id["N01"]["reason_code"] == "NO_EVIDENCE"
     assert WEB_FIELDS <= set(by_id["X01"]) and len(stored) == 4
     s = run["summary"]

@@ -58,18 +58,42 @@ def check_grounding(answer: AnswerJSON, evidence: dict[str, Evidence]) -> tuple[
 
 
 def _check_claim(claim: Claim, evidence: dict[str, Evidence]) -> ClaimCheck:
-    cited = " ".join(evidence[c].text for c in claim.citations if c in evidence)
+    cited = " ".join(cited_text(evidence[c]) for c in claim.citations if c in evidence)
     if not cited:
         return ClaimCheck(claim.text, claim.citations, False, "no valid citation")
-    missing = numbers_in(claim.text) - numbers_in(cited)
+    text, cited = normalise(claim.text), normalise(cited)
+    missing = numbers_in(text) - numbers_in(cited)
     if missing:
         return ClaimCheck(claim.text, claim.citations, False, f"numbers not in the cited text: {sorted(map(str, missing))}")
-    words = _content_words(claim.text)
-    overlap = len(words & _content_words(cited)) / len(words) if words else 1.0
+    words = _stems(text)
+    overlap = len(words & _stems(cited)) / len(words) if words else 1.0
     if overlap < MIN_WORD_OVERLAP:
         return ClaimCheck(claim.text, claim.citations, False, f"word overlap {overlap:.2f} below {MIN_WORD_OVERLAP}")
     return ClaimCheck(claim.text, claim.citations, True, "supported")
 
 
+def cited_text(e: Evidence) -> str:
+    """What a claim may rely on: the passage and the facts in its evidence tag (title, version, effective date, page,
+    section). Found in the first live run: "₹2,000 (version 2.0, effective 2026-04-01)" quotes the tag, not the text."""
+    if e.chunk is None:
+        return e.text
+    c = e.chunk
+    return f"{c.title} version {c.version} effective {c.effective_date} page {c.page} section {c.section} {e.text}"
+
+
+# Models write non-breaking and typographic hyphens ("P‑104", "FY2026‑27"); compare them as "-" (first live run).
+_DASHES = str.maketrans({c: "-" for c in "‐‑‒–—―−"} | {" ": " ", " ": " "})
+STEM_CHARS = 4      # light stemming: "spending" and "spent" share "spen"; a rule anyone can check by hand
+
+
+def normalise(text: str) -> str:
+    return text.translate(_DASHES)
+
+
 def _content_words(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z][a-z0-9-]{2,}", text.lower()) if w not in _STOPWORDS}
+
+
+def _stems(text: str) -> set[str]:
+    """Content words cut to their first STEM_CHARS letters, so a paraphrase of the same word still counts."""
+    return {w[:STEM_CHARS] for w in _content_words(text)}

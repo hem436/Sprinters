@@ -10,8 +10,8 @@ from agent.retrieval import Conflict
 from agent.safety import PROMPT_CANARY
 from agent.types import AnswerJSON, Evidence, ScoredChunk, ToolResult, Turn
 
-ANSWER_PROMPT_VERSION = "answer-v1"
-_SYSTEM = (Path(__file__).parent.parent / "prompts" / "answer-v1.txt").read_text(encoding="utf-8")
+ANSWER_PROMPT_VERSION = "answer-v2"   # v2: state the deciding numbers (live run)
+_SYSTEM = (Path(__file__).parent.parent / "prompts" / "answer-v2.txt").read_text(encoding="utf-8")
 
 # 04 G1, 13 section 5: fixed texts, never written by the model
 NO_EVIDENCE_TEXT = "I could not find this in the approved documents or data."
@@ -29,23 +29,23 @@ def build_evidence(ranked: list[ScoredChunk], conflicts: list[Conflict], tools: 
                    max_tokens: int) -> list[Evidence]:
     """04 A1 and A4: number the evidence, tool results first (T1...), then chunks by rank (E1...).
 
-    Each chunk is followed at once by its other versions found by rule C1, so a conflict is never cut in half by the
-    budget (review #25). Chunks are dropped from the lowest rank once the budget is used.
+    Each chunk and its other versions found by rule C1 form one group. A group goes in whole or not at all, so the
+    budget never keeps v2 of a conflict without v1 (review #25). Groups are dropped from the lowest rank.
     """
     items = [Evidence(f"T{i}", "tool", _tool_text(t), tool=t) for i, t in enumerate(tools, start=1)]
     used = sum(estimate_tokens(e.text) for e in items)
     versions = {(c.doc_key, c.section): c.versions for c in conflicts}
-    chunks = [v for s in ranked for v in [s.chunk, *versions.get((s.chunk.doc_key, s.chunk.section), [])]]
     seen = set()
-    for chunk in chunks:
-        if chunk.chunk_id in seen:
-            continue
-        cost = estimate_tokens(chunk.text)
+    for scored in ranked:
+        group = [scored.chunk, *versions.get((scored.chunk.doc_key, scored.chunk.section), [])]
+        group = [c for c in {c.chunk_id: c for c in group}.values() if c.chunk_id not in seen]
+        cost = sum(estimate_tokens(c.text) for c in group)
         if used + cost > max_tokens:
             break
-        seen.add(chunk.chunk_id)
+        for chunk in group:
+            seen.add(chunk.chunk_id)
+            items.append(Evidence(f"E{len(seen)}", "document", chunk.text, chunk=chunk))
         used += cost
-        items.append(Evidence(f"E{len(seen)}", "document", chunk.text, chunk=chunk))
     return items
 
 

@@ -3,6 +3,7 @@
 guard (S1) -> plan (M1, R1) -> retrieve (H1 to H4, C1) and/or tool (T1 to T4) -> generate (A1 to A4, G1) -> validate (V1, V2, V4)
 """
 import operator
+import re
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -43,6 +44,7 @@ class AgentState(TypedDict, total=False):
     conversational: bool
     llm_failed: bool
     output_invalid: bool
+    llm_error_detail: str
     citation_checks: list
     grounding: float
     claim_checks: list
@@ -69,9 +71,10 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
         with run_stage(state["recorder"], "plan", "context", "route") as stage:
             try:
                 decision, replies = route_question(state["question"], context, llm, tools)
-            except LLMError:
+            except LLMError as error:
                 # 06 AI-4: the planner failed, so answer from the documents with the user's own words
                 decision, replies = RouteDecision("DOCS", state["question"], reason="ROUTE_FALLBACK"), []
+                _detail(stage, llm_error=str(error)[:300])
             _detail(stage, route=decision.route, route_reason=decision.reason, tool=decision.tool)
         for reply in replies:
             report_llm(state["recorder"], "route", reply, ROUTE_PROMPT_VERSION)
@@ -87,7 +90,10 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
     def run_tool(state: AgentState) -> dict:
         decision = state["route"]
         if decision.tool is None:
-            # no approved tool fits: nothing runs, so nothing is recorded as a tool call (13 section 5, NO_TOOL)
+            # 13 section 5, NO_TOOL: no approved tool fits. The stage is recorded so the drill-down shows why, but no
+            # tool_call row, because no tool ran (review #25)
+            with run_stage(state["recorder"], "tool") as stage:
+                _detail(stage, tool=None, status="NO_TOOL")
             return {"tools": [], "no_tool": True}
         with run_stage(state["recorder"], "tool"):
             result = tools.run_tool(decision.tool, decision.tool_args)
@@ -96,8 +102,11 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
         return {"tools": [result], "tool_call_ids": [call_id]}
 
     def generate(state: AgentState) -> dict:
-        with run_stage(state["recorder"], "generate", "answer"):
-            return _generate(state, llm)
+        with run_stage(state["recorder"], "generate", "answer") as stage:
+            result = _generate(state, llm)
+            if result.get("llm_error_detail"):          # the provider's reason, for the drill-down (never a key)
+                _detail(stage, llm_error=result["llm_error_detail"])
+            return result
 
     def validate(state: AgentState) -> dict:
         with run_stage(state["recorder"], "validate") as stage:
@@ -156,9 +165,9 @@ def _generate(state: AgentState, llm: LLMPort) -> dict:
 
 def _without_evidence(tool_results: list[ToolResult], no_tool: bool) -> dict:
     """04 G1 and 13 section 5: which fixed text to show when nothing usable was found."""
-    if no_tool or any(t.status == "NO_TOOL" for t in tool_results):
+    if no_tool:
         return {"text": NO_TOOL_TEXT, "fallback": True}
-    if tool_results:            # the tool was needed and failed (timeout, database error, bad arguments)
+    if tool_results:            # the tool ran and failed (timeout, database error, bad arguments)
         return {"text": TOOL_UNAVAILABLE_TEXT, "fallback": False}
     return {"text": NO_EVIDENCE_TEXT, "fallback": True}
 
@@ -177,8 +186,8 @@ def _ask_model(state: AgentState, llm: LLMPort, system: str, user: str) -> dict:
             replies.append(repair)
             report_llm(recorder, "repair", repair, ANSWER_PROMPT_VERSION)
             answer = parse_answer(repair.text)
-    except LLMError:
-        return {"text": NO_EVIDENCE_TEXT, "llm_failed": True, "replies": replies}
+    except LLMError as error:
+        return {"text": NO_EVIDENCE_TEXT, "llm_failed": True, "replies": replies, "llm_error_detail": str(error)[:300]}
     except ValueError:
         return {"text": NO_EVIDENCE_TEXT, "output_invalid": True, "replies": replies}
     if answer.insufficient_evidence:
@@ -195,7 +204,8 @@ def _validate(state: AgentState) -> dict:
     answer, citation_checks = check_citations(answer, set(evidence))
     grounding, claim_checks = check_grounding(answer, evidence)
     suspects = [e.text for e in evidence.values() if e.chunk and e.chunk.injection_suspect]
-    text, flags = check_output(answer.answer_markdown, suspects)
+    # the live model sometimes marks citations as 【T1】; the chat links the plain [T1] form
+    text, flags = check_output(re.sub(r"【(\w+)】", r"[\1]", answer.answer_markdown), suspects)
     if suspects:
         flags = ["INJECTION_IN_EVIDENCE", *flags]
     return {"answer": answer, "text": text, "citation_checks": citation_checks, "grounding": grounding,
