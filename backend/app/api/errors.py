@@ -14,20 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 log = logging.getLogger(__name__)
 
-_STATUS_CODES = {
-    400: "BAD_REQUEST",
-    401: "UNAUTHORIZED",
-    403: "FORBIDDEN",
-    404: "NOT_FOUND",
-    405: "METHOD_NOT_ALLOWED",
-    409: "CONFLICT",
-    413: "PAYLOAD_TOO_LARGE",
-    415: "UNSUPPORTED_MEDIA_TYPE",
-    422: "INVALID_REQUEST",
-    429: "TOO_MANY_REQUESTS",
-    503: "SERVICE_UNAVAILABLE",
-    504: "TIMEOUT",
-}
+_STATUS_CODES = {401: "UNAUTHORIZED", 404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}
 
 
 class ApiError(Exception):

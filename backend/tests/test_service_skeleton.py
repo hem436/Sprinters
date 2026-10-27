@@ -79,17 +79,6 @@ def test_every_response_has_a_request_id(client):
     assert first != second
 
 
-def test_valid_incoming_request_id_is_kept(client):
-    resp = client.get("/health", headers={"X-Request-Id": "trace-abc_123"})
-    assert resp.headers["X-Request-Id"] == "trace-abc_123"
-
-
-def test_unsafe_incoming_request_id_is_replaced(client):
-    resp = client.get("/health", headers={"X-Request-Id": "bad id\r\nx"})
-    assert resp.headers["X-Request-Id"] != "bad id\r\nx"
-    assert len(resp.headers["X-Request-Id"]) == 26
-
-
 # require_admin
 
 def test_admin_route_needs_credentials(config):

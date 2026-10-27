@@ -2,12 +2,12 @@
 
 Arka owns these rules (contract 01 section 3: classify(record) -> (outcome, reason_code)).
 This file follows the contract table exactly so the recorder works today; Arka reviews it
-or replaces it, and the recorder takes any function with the same signature.
+or replaces it here.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -25,7 +25,6 @@ class OutcomeFacts:
     citations_total: int = 0
     grounding_score: float | None = None
     top_score: float | None = None
-    extra_flags: list[str] = field(default_factory=list)
 
 
 def classify(facts: OutcomeFacts, grounding_min: float = 0.8) -> tuple[str, str]:

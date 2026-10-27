@@ -47,16 +47,16 @@ CREATE INDEX IF NOT EXISTS ix_query_event_ts ON query_event (ts);
 CREATE INDEX IF NOT EXISTS ix_query_event_outcome ON query_event (outcome, ts);
 CREATE INDEX IF NOT EXISTS ix_query_event_config ON query_event (config_id, ts);
 
+-- Rows keep insertion order (rowid), which is the order the stages ran.
 CREATE TABLE IF NOT EXISTS query_stage (
     query_id   TEXT NOT NULL REFERENCES query_event (query_id),
-    seq        INTEGER NOT NULL,
     stage      TEXT NOT NULL,
     status     TEXT NOT NULL CHECK (status IN ('OK','SKIPPED','ERROR','TIMEOUT')),
     latency_ms INTEGER,
     retries    INTEGER NOT NULL DEFAULT 0,
-    detail     TEXT,
-    PRIMARY KEY (query_id, seq)
+    detail     TEXT
 );
+CREATE INDEX IF NOT EXISTS ix_query_stage_query ON query_stage (query_id);
 
 CREATE TABLE IF NOT EXISTS retrieval_hit (
     query_id    TEXT NOT NULL REFERENCES query_event (query_id),
@@ -73,8 +73,7 @@ CREATE TABLE IF NOT EXISTS llm_call (
     call_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     query_id       TEXT,
     document_id    TEXT,
-    ts             TEXT NOT NULL,
-    purpose        TEXT NOT NULL CHECK (purpose IN ('route','answer','judge','ocr','embed','repair')),
+    purpose        TEXT NOT NULL CHECK (purpose IN ('route','answer','judge','ocr','embed')),
     model          TEXT NOT NULL,
     prompt_version TEXT,
     tokens_in      INTEGER NOT NULL DEFAULT 0,
@@ -158,12 +157,6 @@ CREATE TABLE IF NOT EXISTS eval_result (
     passed    INTEGER,
     measures  TEXT,      -- JSON: hit@5, recall@5, rr, route_ok, behaviour_ok, criteria_ok ...
     PRIMARY KEY (run_id, case_id)
-);
-
--- Writes the recorder could not make (contract 11 section 3), so missing records are visible.
-CREATE TABLE IF NOT EXISTS counter (
-    name  TEXT PRIMARY KEY,
-    value INTEGER NOT NULL DEFAULT 0
 );
 """
 

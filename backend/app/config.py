@@ -111,8 +111,7 @@ def _apply_env_overrides(data: dict[str, Any], environ: dict[str, str]) -> None:
 
 
 def load_config(path: Path | None = None, environ: dict[str, str] | None = None) -> Config:
-    load_dotenv(BACKEND_DIR / ".env", override=False)
-    load_dotenv(BACKEND_DIR.parent / ".env", override=False)
+    load_dotenv(BACKEND_DIR.parent / ".env", override=False)   # the repo-root .env that Compose also reads
     config_path = path or Path(os.getenv("APP_CONFIG", DEFAULT_CONFIG_PATH))
     with open(config_path, encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}

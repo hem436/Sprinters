@@ -137,7 +137,7 @@ def test_recorder_writes_every_table(db):
 def test_recorder_never_raises(tmp_path):
     broken = tmp_path / "not-a-dir"
     broken.write_text("a file where a folder should be")
-    before = dropped_events(broken / "x.db")
+    before = dropped_events()
     rec = QueryRecorder.start("question", "s", "A", db_path=broken / "x.db")
     with rec.stage("generate"):
         pass
@@ -145,10 +145,11 @@ def test_recorder_never_raises(tmp_path):
     rec.llm_call("answer", "openai/gpt-oss-120b", {"prompt_tokens": 1, "completion_tokens": 1})
     result = rec.finish("the answer still comes back", "DOCS", 1.0)
     assert result.recorded is False
-    assert dropped_events(broken / "x.db") == before + 1
+    assert dropped_events() == before + 1
 
 
 def test_write_is_one_transaction(db):
+    before = dropped_events()
     rec = QueryRecorder.start("q", "s", "A", db_path=db)
     # Two citations with the same id break the citation insert after query_event was written.
     rec.citations([{"citation_id": "E1", "chunk_id": "a", "valid": True},
@@ -156,7 +157,7 @@ def test_write_is_one_transaction(db):
     result = rec.finish("a", "DOCS", 1.0)
     assert result.recorded is False
     assert rows(db, "SELECT 1 FROM query_event WHERE query_id = ?", result.query_id) == []
-    assert dropped_events(db) >= 1
+    assert dropped_events() == before + 1
 
 
 def test_stage_records_error_and_reraises(db):
@@ -169,7 +170,7 @@ def test_stage_records_error_and_reraises(db):
             raise TimeoutError
     rec.stage_skipped("rerank", "config A")
     result = rec.finish(None, "DOCS")
-    stages = rows(db, "SELECT stage, status FROM query_stage WHERE query_id = ? ORDER BY seq", result.query_id)
+    stages = rows(db, "SELECT stage, status FROM query_stage WHERE query_id = ? ORDER BY rowid", result.query_id)
     assert [(s["stage"], s["status"]) for s in stages] == [
         ("retrieve_bm25", "ERROR"), ("tool", "TIMEOUT"), ("rerank", "SKIPPED")]
 
