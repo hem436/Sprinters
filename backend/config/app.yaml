@@ -1,0 +1,76 @@
+# Application configuration (contract 07: every key with its default, no secrets).
+# Secrets live in .env. Any key can be overridden from the environment with
+# APP__<SECTION>__<KEY>, for example APP__QDRANT__URL=http://qdrant:6333.
+# WP-BE1 covers app, api, paths, qdrant, health. The other sections hold the
+# defaults named in contracts 04, 10, 11, 13 and 14; their owners read them.
+
+app:
+  name: enterprise-knowledge-assistant
+  version: 0.1.0
+  log_level: INFO
+
+api:
+  cors_origins:
+    - http://localhost:5173
+    - http://localhost:3000
+
+paths:
+  data_dir: data
+  knowledge_db: data/knowledge.db
+  business_db: data/business.db
+  observability_db: data/observability.db
+
+qdrant:
+  url: http://localhost:6333
+  collection: chunks
+  timeout_s: 2.0
+
+health:
+  timeout_s: 2.0
+
+llm:
+  route_model: openai/gpt-oss-20b
+  answer_model: openai/gpt-oss-120b
+  fallback_model: openai/gpt-oss-20b
+  temperature: 0.1
+  timeout_s: 30
+  max_context_tokens: 6000
+
+ocr:
+  model: gemini-2.5-flash
+  max_edge_px: 1600
+  prompt_version: ocr-v1
+
+embed:
+  model: gemini-embedding-001
+  fallback_model: null
+  batch_size: 64
+
+chunk:
+  target_tokens: 400
+  max_tokens: 700
+  overlap_tokens: 80
+
+extract:
+  allowed_types: [pdf, docx, txt, png, jpg, jpeg, tif, tiff, webp]
+  max_mb: 50
+  max_pages: 500
+  max_ocr_pages: 60
+  min_text_chars: 80
+  mixed_image_cover: 0.50
+  max_garbage_ratio: 0.05
+  column_gap_pt: 18
+  review_threshold: 0.85
+
+obs:
+  grounding_min: 0.8
+  relevance_min: 0.3
+  relevance_min_vector: 0.6
+  relevance_high: 0.7
+
+tools:
+  enabled: true
+  timeout_ms: 2000
+  max_rows: 20
+  freeform_sql: false
+  simulate_failure: false

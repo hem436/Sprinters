@@ -2,7 +2,7 @@
      After freezing, change only through the design-change skill: an entry in CHANGES.md and a version bump. -->
 # 14 Financial reports and their tables
 
-Version: 1.0 · Status: DRAFT · Owners: Myank (P1) extraction and checks, Sinngam (P3) tools, Arka (P2) routing and eval cases · Case section(s): 3, 4.1, 5
+Version: 1.1 · Status: DRAFT · Owners: Myank (P1) extraction and checks, Sinngam (P3) tools, Arka (P2) routing and eval cases · Case section(s): 3, 4.1, 5
 (FR-02, FR-07, FR-09), 9 (structured, combined, conflicting scenarios)
 
 ## 1. The idea
@@ -37,13 +37,13 @@ flowchart LR
 
 | Step | Rule | Why |
 |---|---|---|
-| F1 Find | pdfplumber `find_tables()`; a table with merged header cells, no ruling lines, or a continuation on the next page goes to the vision model, which returns JSON `{caption, unit_line, header_rows[], rows[][]}` | pdfplumber misses tables without lines; annual reports often have them |
+| F1 Find | pdfplumber `find_tables()`, and the Markdown tables of OCR pages; a numeric page (TABLE_HEAVY, `num_ratio` ≥ 0.30) where pdfplumber finds no ruled table goes to the vision model, which returns JSON `{caption, unit_line, header_rows[], rows[][]}`. Merged header cells are filled from the left; a continuation is joined by F2. A table read by a vision model always goes to review (gap G7) | pdfplumber misses tables without lines; annual reports often have them |
 | F2 Continuation | a table whose next page starts with the same header row, or with no header and the same column count, is joined; `pages` records both | long notes and segment tables cross pages |
 | F3 Headers to dimensions | each value column gets `period` (from "Year ended 31 March 2025" = FY2024-25; "Q2 FY25" = FY2024-25 Q2) and `basis` (CONSOLIDATED or STANDALONE, from the table title or the section heading). A column marked "Note" is dropped | standalone and consolidated figures must never mix |
 | F4 Unit and scale | from the caption or the line above: "₹ in crore" = INR × 1,00,00,000; "₹ in lakh" × 1,00,000; "in million" × 10,00,000; "%" = PERCENT; per-table, stored on `fin_table` | a crore against a million mix-up is a 10× error |
-| F5 Parse numbers | `(1,234.50)` = −1,234.50; `1,23,456` = Indian grouping; `-`, a long dash, `nil` = 0; values kept as integers in the base unit (rupees; percent in basis points) and also **as printed** | exact sums, and the citation shows what the page says |
+| F5 Parse numbers | `(1,234.50)` = −1,234.50; `1,23,456` = Indian grouping; `-`, a long dash, `nil` = 0; values kept as integers in the base unit (rupees; percent in basis points; per-share amounts such as EPS in paise, `value_kind` PER_SHARE, because ₹45.67 is not a whole number of rupees) and also **as printed** | exact sums, and the citation shows what the page says |
 | F6 Map labels | the line label goes through a dictionary of standard metrics (section 4). An unknown label gets an LLM-proposed mapping that waits for approval; until then its `metric` is empty and no tool uses it | "Revenue from operations" and "Total income from operations" must mean the same metric only when a person agrees |
-| F7 Checks | (a) components add up to the table's total row within 1 unit of the printed precision; (b) a metric and period already stored from another report has the same value, or is marked restated (section 5). Fail (a): table NEEDS_REVIEW | catches misread digits and wrong columns |
+| F7 Checks | (a) at every "Total ..." row, the shortest run of rows or subtotals just above it adds up to it within 1 unit of its printed precision (so "Total assets" is checked against the two subtotals); a total with no rows of its own above it (after a sub-heading, a total or a "Profit ..." line) is recorded as unverified, not failed; (b) a metric and period already stored from another report has the same value, or is marked restated (section 5). Also NEEDS_REVIEW: basis or unit not found, a number that does not parse (`1,23,4S6`), an unmapped label, a table read by a vision model | catches misread digits and wrong columns |
 | F8 Review | NEEDS_REVIEW tables appear on the admin page beside the page image (same gate as contract 10 X7); approve or reject | a person signs off numbers the checks could not confirm |
 
 Tested: number parsing (`(1,234.50)` × crore = −12,34,50,00,000 rupees; `1,23,456`; `-` = 0) runs exactly with `Decimal`.
@@ -52,16 +52,21 @@ Tested: number parsing (`(1,234.50)` × crore = −12,34,50,00,000 rupees; `1,23
 
 | Table | Columns |
 |---|---|
-| `report` | `report_id` (`R-A-25`), `company`, `report_type` (ANNUAL, QUARTERLY), `fiscal_year`, `published_on`, `document_id` |
-| `fin_table` | `table_id`, `report_id`, `pages`, `statement` (PL, BS, CF, SEGMENT, OTHER), `basis`, `currency`, `scale` (1, 1,000, 1,00,000, 10,00,000, 1,00,00,000), `checks_passed`, `status` (NEEDS_REVIEW, APPROVED, REJECTED) |
-| `fin_fact` | `fact_id`, `table_id`, `report_id`, `company`, `period`, `basis`, `metric` (empty until mapped), `segment`, `line_label` as printed, `value_kind` (AMOUNT, PERCENT, COUNT), `value_num` (integer, base unit), `value_printed`, `page`, `row_no`, `col_no` |
-| `metric_map` | `line_label`, `metric`, `proposed_by` (DICTIONARY, LLM), `approved_by`, `approved_on` |
+| `report` | `report_id` (`R-CA-25`: company initials and fiscal year), `company`, `report_type` (ANNUAL, QUARTERLY), `fiscal_year`, `published_on` (the document's effective date), `document_id` |
+| `fin_table` | `table_id`, `report_id`, `pages`, `statement` (PL, BS, CF, SEGMENT, OTHER), `basis`, `currency`, `scale` (1, 1,000, 1,00,000, 10,00,000, 1,00,00,000), `unit_printed`, `caption`, `source` (text, ocr, vision), `rows_json` (the table as read, for the review screen), `checks_passed`, `checks_json` (each check and why it failed), `status` (NEEDS_REVIEW, APPROVED, REJECTED), `reviewed_by`, `reviewed_at`, `review_comment` |
+| `fin_fact` | `fact_id`, `table_id`, `report_id`, `company`, `period`, `basis`, `metric` (empty until mapped), `segment`, `line_label` as printed, `label_norm` (normalised, the key of `metric_map`), `value_kind` (AMOUNT, PERCENT, COUNT, PER_SHARE), `value_num` (integer, base unit), `value_printed`, `page`, `row_no` (line item number in the table), `col_no` |
+| `metric_map` | `line_label` (normalised), `metric`, `proposed_by` (DICTIONARY, LLM, ADMIN), `approved_by` (NULL = waiting), `approved_on` |
+
+**Which documents give facts.** A document uploaded with the optional field `company` (and optionally `report_type`,
+default ANNUAL, and `fiscal_year` like FY2024-25, default the fiscal year before the effective date). Other documents
+give chunks only.
 
 Index on `fin_fact (company, metric, period, basis)`.
 
 **View `v_fact_current`** (tested): only APPROVED tables and mapped metrics; for each company, metric, period, basis
 and segment the **newest report wins** (`ROW_NUMBER` by `published_on`), and `restated = 1` when two reports give
-different values for the same item.
+different values for the same item; then `prev_value_num`, `prev_value_printed`, `prev_report_id` and `prev_page`
+give the older value for the "was ..." text and its citation.
 
 ## 4. Standard metrics (start list; extend with approval)
 

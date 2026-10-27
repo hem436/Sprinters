@@ -1,0 +1,33 @@
+# Model prices in USD per 1 million tokens (contract 11 section 4).
+# Each row names the page it was read from and the date. Loaded into model_price at start-up.
+# Leave a price empty (null) when it is not known: the dashboard then shows "price not set", never 0.
+
+prices:
+  - model: openai/gpt-oss-120b
+    usd_per_1m_in: 0.15
+    usd_per_1m_out: 0.60
+    usd_per_1m_cached: 0.075
+    source_url: https://console.groq.com/docs/model/openai/gpt-oss-120b
+    checked_on: 2026-10-27
+
+  - model: openai/gpt-oss-20b
+    usd_per_1m_in: 0.075
+    usd_per_1m_out: 0.30
+    usd_per_1m_cached: 0.037
+    source_url: https://console.groq.com/docs/model/openai/gpt-oss-20b
+    checked_on: 2026-10-27
+
+  - model: gemini-2.5-flash
+    usd_per_1m_in: 0.30
+    usd_per_1m_out: 2.50
+    usd_per_1m_cached: 0.03
+    source_url: https://ai.google.dev/gemini-api/docs/pricing
+    checked_on: 2026-10-27
+
+  # Not listed on the pricing page on 2026-10-27; set it once the price is confirmed.
+  - model: gemini-embedding-001
+    usd_per_1m_in: null
+    usd_per_1m_out: null
+    usd_per_1m_cached: null
+    source_url: https://ai.google.dev/gemini-api/docs/pricing
+    checked_on: 2026-10-27
