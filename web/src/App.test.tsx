@@ -8,7 +8,7 @@ import { renderWithProviders } from './test/render'
 
 beforeEach(() => {
   resetMockStore()
-  saveCredentials({ username: 'admin', password: 'x' })
+  saveCredentials({ username: 'admin', password: 'admin' })
 })
 
 describe('every route renders on mock data', () => {
@@ -26,10 +26,24 @@ describe('every route renders on mock data', () => {
     expect((await screen.findAllByText(text, {}, { timeout: 3000 })).length).toBeGreaterThan(0)
   })
 
-  it('opens admin pages without a login when VITE_ADMIN_LOGIN is off', async () => {
+  it('asks for the admin login, refuses a wrong password and opens with the right one', async () => {
     saveCredentials(null)
     renderWithProviders(<App />, '/dashboard')
+    expect(await screen.findByText('Admin login')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Password'), 'wrong')
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
+    expect(await screen.findByText('Wrong user name or password.')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Password'), 'admin')
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
     expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(sessionStorage.getItem('ka.auth')).toContain('admin')
+  })
+
+  it('sends a wrong saved login back to the login page', async () => {
+    saveCredentials({ username: 'admin', password: 'old' })
+    renderWithProviders(<App />, '/dashboard')
+    expect(await screen.findByText('Admin login')).toBeInTheDocument()
+    expect(sessionStorage.getItem('ka.auth')).toBeNull()
   })
 
   it('logs out from an admin page back to the chat and clears the saved login', async () => {

@@ -367,3 +367,9 @@ export interface Health {
 }
 
 export type ReviewDecision = 'APPROVE' | 'REJECT'
+
+/** GET /auth/me (proposed with the backend admin login, PR #50). */
+export interface AuthMe {
+  username: string | null
+  login_required: boolean
+}

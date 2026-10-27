@@ -5,7 +5,7 @@ import { maskPii } from './scenarios'
 
 beforeEach(() => {
   resetMockStore()
-  saveCredentials({ username: 'admin', password: 'x' })
+  saveCredentials({ username: 'admin', password: 'admin' })
 })
 
 const ask = (question: string, session = 's-1', config_id: 'A' | 'B' = 'B') => mockApi.query({ question, session_id: session, config_id })
@@ -62,9 +62,11 @@ describe('feedback and metrics', () => {
     expect(m.outcome_over_time.reduce((a, b) => a + b.SUCCESS, 0)).toBe(m.total_queries)
   })
 
-  it('opens the dashboard without a login, as the team decided (issue #48)', async () => {
+  it('needs the admin login for the dashboard, and checks it', async () => {
     saveCredentials(null)
-    await expect(mockApi.metricsSummary({})).resolves.toMatchObject({ total_queries: expect.any(Number) })
+    await expect(mockApi.metricsSummary({})).rejects.toMatchObject({ status: 401, code: 'UNAUTHORIZED' })
+    await expect(mockApi.authMe({ username: 'admin', password: 'wrong' })).rejects.toMatchObject({ status: 401 })
+    await expect(mockApi.authMe({ username: 'admin', password: 'admin' })).resolves.toEqual({ username: 'admin', login_required: true })
   })
 })
 

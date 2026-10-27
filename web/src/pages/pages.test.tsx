@@ -18,7 +18,7 @@ function turnOf(response: QueryResponse): Turn {
 
 beforeEach(() => {
   resetMockStore()
-  saveCredentials({ username: 'reviewer', password: 'x' })
+  saveCredentials({ username: 'admin', password: 'admin' })
 })
 
 describe('ChatMessage', () => {
