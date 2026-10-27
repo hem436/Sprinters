@@ -207,6 +207,21 @@ def test_eval_runs(api):
     assert api.post("/eval/runs", json={"config_id": "C"}).status_code == 422
 
 
+def test_eval_run_starts_and_finishes(api):
+    """202 with a run_id; G01 ("Hello!") needs no model call. A subset run writes no output files."""
+    import threading
+
+    started = api.post("/eval/runs", json={"config_id": "B", "case_ids": ["G01"]})
+    assert started.status_code == 202, started.text
+    run_id = started.json()["run_id"]
+    for thread in threading.enumerate():
+        if thread.name == run_id:
+            thread.join(timeout=20)
+    run = api.get(f"/eval/runs/{run_id}").json()
+    assert run["status"] == "DONE" and [r["case_id"] for r in run["results"]] == ["G01"]
+    assert api.post("/eval/runs", json={"config_id": "B", "case_ids": ["Z99"]}).status_code == 422
+
+
 # Documents (Myank's service) ------------------------------------------------------------------------------------
 
 def test_upload_and_its_errors(api):

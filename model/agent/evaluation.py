@@ -55,7 +55,10 @@ def load_cases(path: Path) -> list[EvalCase]:
     for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
             continue
-        case = EvalCase(**json.loads(line))
+        try:
+            case = EvalCase(**json.loads(line))
+        except (ValueError, TypeError) as error:    # not JSON, an unknown field or a missing one (review #25)
+            raise ValueError(f"line {n}: {error}") from error
         if case.expected_behavior not in BEHAVIOURS:
             raise ValueError(f"line {n}: unknown expected_behavior {case.expected_behavior!r}")
         if case.id in ids or not case.turns:
