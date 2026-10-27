@@ -110,10 +110,20 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
                     report_tool(recorder, result)
                     result = tools.run_tool(fixed.tool, fixed.tool_args)
                     _detail(stage, args_fixed=True, refused_args=decision.tool_args)
+            unknown = _unknown_entity(result)
+            if unknown:
+                _detail(stage, tool_to_docs=unknown)
         for reply in replies:
             report_llm(recorder, "route", reply, ROUTE_PROMPT_VERSION)
         # the recorder's own id for this call, so a citation of T1 points at the stored tool_call row
         call_id = report_tool(recorder, result)
+        if unknown:
+            # The business data does not hold this company or id ("HCL Technologies was not recognised"), so the
+            # answer can only be in the documents: search them instead of saying "the data is not available". The
+            # refused call stays on record; it is not evidence, so the outcome is about the document answer.
+            docs = RouteDecision("DOCS", decision.standalone_query, reason="TOOL_TO_DOCS",
+                                 note=f"{decision.tool}: {result.message}"[:300])
+            return {"tools": [], "route": docs, "replies": replies}
         return {"tools": [result], "tool_call_ids": [call_id], "replies": replies}
 
     def generate(state: AgentState) -> dict:
@@ -147,7 +157,10 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
     graph.add_conditional_edges("guard", lambda s: END if s["blocked"] else "plan")
     graph.add_conditional_edges("plan", _after_plan)
     graph.add_conditional_edges("retrieve", lambda s: "tool" if s["route"].route == "BOTH" else "generate")
-    graph.add_edge("tool", "generate")
+    # a data question about a company or id the data does not hold goes on to the documents (TOOL_TO_DOCS); on BOTH
+    # the documents were already searched, so it goes straight to generate
+    graph.add_conditional_edges("tool", lambda s: "retrieve" if s["route"].route == "DOCS" and s.get("retrieval")
+                                is None else "generate")
     graph.add_edge("generate", "validate")
     graph.add_edge("validate", END)
     return graph.compile()
@@ -157,6 +170,14 @@ def _detail(stage, **values) -> None:
     """Add facts to the recorder's stage row (its `detail` column), when the recorder offers one."""
     if stage is not None and hasattr(stage, "detail"):
         stage.detail.update(values)
+
+
+def _unknown_entity(result: ToolResult) -> str:
+    """The tool refused because a company or id is not in the business data (the registry's "id must exist" check
+    says "... was not recognised"). Returns that message, or "" for any other result."""
+    if result.status == "ARGS_INVALID" and "was not recognised" in result.message:
+        return result.message[:300]
+    return ""
 
 
 def _after_plan(state: AgentState) -> str:

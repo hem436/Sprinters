@@ -117,3 +117,47 @@ def test_fr05_reranker_model_is_a_setting(monkeypatch):
     FlashRankReranker(cache_dir="/tmp/fr", workers=1)
     assert made == [{"model_name": "ms-marco-MiniLM-L-12-v2"},
                     {"model_name": "ms-marco-TinyBERT-L-2-v2", "cache_dir": "/tmp/fr"}]
+
+
+class UnknownCompanyTools(StubTools):
+    """Like Sinngam's facts tools when the company was never registered: "company: ... was not recognised"."""
+
+    def list_tools(self):
+        return [{"name": "metric_value", "description": "One financial metric for one company and period",
+                 "args": {"company": "name", "metric": "revenue|...", "period": "FYyyyy-yy"}}]
+
+    def run_tool(self, name, args):
+        from agent.types import ToolResult
+        self.calls.append((name, args))
+        return ToolResult(name, "ARGS_INVALID", args=args, message=f"company: {args.get('company')} was not recognised")
+
+
+def test_fr07_unknown_company_in_the_data_searches_the_documents(corpus, table_reranker):
+    """Live, 27 Oct: "What is the total revenue from operations for HCL Technologies?" got "the business data is not
+    available": the HCL report was uploaded without a company, so the facts tool refused it. Now the documents
+    are searched and the answer cites them."""
+    plan = {"route": "SQL", "standalone_query": "HCL revenue from operations", "tool": "metric_value",
+            "tool_args": {"company": "HCL Technologies", "metric": "revenue"}}
+    answer = {"answer_markdown": "Every laptop must be encrypted and patched within 30 days [E1].",
+              "claims": [{"text": "Every laptop must be encrypted and patched within 30 days.", "citations": ["E1"]}]}
+    llm = FakeLLM({"route": [plan, plan], "answer": [answer]})            # the repair call changes nothing
+    tools, recorder = UnknownCompanyTools(), NullRecorder()
+    r = Agent(StubSearch(corpus, bm25=[Hit("c_sop_laptop", 9.0, 1)]), tools, llm, table_reranker({"POL": 0.9})).answer(
+        "What is the total revenue from operations for HCL Technologies?", "s1", recorder)
+    assert (r.route, r.outcome, r.reason_code) == ("DOCS", "SUCCESS", "OK")
+    assert [t["status"] for t in recorder.tool_calls] == ["ARGS_INVALID"] and r.tool_results == []
+    assert "was not recognised" in recorder.stage_details["tool"]["tool_to_docs"]
+
+
+def test_fr07_other_refusals_stay_a_tool_error(corpus, table_reranker):
+    """Only "not recognised" moves to the documents; a wrong value format is still a controlled tool error."""
+    from agent.types import ToolResult
+
+    class BadFormat(UnknownCompanyTools):
+        def run_tool(self, name, args):
+            self.calls.append((name, args))
+            return ToolResult(name, "ARGS_INVALID", args=args, message="period: String should match pattern")
+    plan = {"route": "SQL", "standalone_query": "q", "tool": "metric_value", "tool_args": {"period": "2025"}}
+    r = Agent(StubSearch(corpus), BadFormat(), FakeLLM({"route": [plan, plan]}), table_reranker({})).answer(
+        "What was Company A revenue in 2025?", "s1", NullRecorder())
+    assert (r.route, r.reason_code) == ("SQL", "TOOL_FAILED")
