@@ -144,8 +144,36 @@ First run on 27 Oct 2026 (real OCR, `gemini-3.5-flash`): 7 of 7 pages in the rig
 recall 1.000 on every page; the 2 scanned table pages wait for review as rule X7 asks. These pages are generated, so
 the scores are an upper bound: real scans and real handwriting will score lower.
 
+## Demo corpus ingest (WP-EX8)
+
+```bash
+rm -rf data && .venv/bin/python -m ingestion ingest ../demo/documents/manifest.yaml
+```
+
+Run on 27 Oct 2026 with the real models: 9 of 9 documents INDEXED or PARTIAL_REVIEW in about 30 s; OCR about 3 to 4 s
+a page on `gemini-3.5-flash-lite`. The 2 PARTIAL_REVIEW documents wait only on their OCR table pages (rule X7):
+approve page 2 of the scanned policy v1.0 and the per diem conflict (₹2,000 in v2.0 against ₹1,500 in v1.0) appears
+through `get_section_versions`. Facts: FY2024-25 revenue ₹11,256 crore; FY2023-24 ₹10,050 crore, restated from
+₹10,000 crore (R-CA-24); standalone ₹9,000 crore kept apart; segments Payments ₹7,000 and Lending ₹4,256 crore.
+
+What the run found, and the fixes (each has a test):
+
+| Found | Fix |
+|---|---|
+| `gemini-embedding-2-preview` returned 1 vector for a list of texts | one `Content` per text; a count check stops a short batch |
+| the free tier allows 20 OCR requests a day per model; the run ran out | model fallback chain (`ocr.fallback_models`); a daily cap is not retried |
+| both annual reports shared a `doc_key`, so FY2023-24 became SUPERSEDED | one `doc_key` per report year; restatements are handled by the facts view |
+| segment result rows counted as unmapped labels | only the segment revenue block is mapped; other segment rows are text |
+| OCR pages kept the running header and footer | the same repeated-line rule runs on OCR text |
+| OCR headings ("## 1 Purpose") gave other section paths than the text version | a numbered heading takes its level from its number |
+| the standalone P&L was joined to the consolidated P&L as a continued table | a table with its own title, or in another section, is a new table |
+
+For Arka: with these embeddings an unrelated question ("CEO salary") still gets a cosine score of about 0.64, and
+relevant top hits score 0.73 to 0.84. Config A's `obs_relevance_min_vector` of 0.6 lets the unrelated one through;
+about 0.70 separates them on this corpus.
+
 ## Not done yet
 
 - Real photos of 2 handwritten notes and their typed gold text; optionally a page of a real public annual report.
-- WP-EX8 ingest of the demo corpus with the real models; connection to Sinngam's routes.
+- Connection to Sinngam's routes (merge point M-2).
 - Tesseract fallback (MAY in contract 10).

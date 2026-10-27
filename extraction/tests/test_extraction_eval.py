@@ -122,3 +122,25 @@ def test_wrapped_heading_is_one_heading(tmp_path):
 def test_scanned_demo_pages_are_scanned(name):
     pages = extract_pdf(ROOT / "demo" / "documents" / name, ExtractConfig(), FakeOCR())
     assert {p.page_class for p in pages} == {"SCANNED"}
+
+
+def test_ocr_numbered_heading_level_matches_text_layer():
+    """Bug found on the demo corpus: OCR marks the title "#" and "1 Purpose" "##", so the scanned v1.0 got
+    "Title > 1 Purpose" while the text v2.0 got "1 Purpose"; rule C1 matches versions by section."""
+    from ingestion.layout import SectionTracker, text_to_blocks
+
+    blocks = text_to_blocks("# Travel and Expense Policy, version 1.0\n\n## 1 Purpose\nThe rules.\n\n"
+                            "## 4.2 Per diem\nMumbai 1,500.", SectionTracker(), "ocr", markdown=True)
+    assert [b.section for b in blocks if b.type == "paragraph"] == ["1 Purpose", "1 Purpose > 4.2 Per diem"]
+
+
+def test_running_header_removed_from_ocr_pages(tmp_path):
+    from tests.conftest import ocr_result
+
+    pages_md = [f"Arka Fintech Services - Internal\n\n# Section {i}\n\nBody text of page {i} about travel.\n\n"
+                f"Page {i} of 3" for i in (1, 2, 3)]
+    ocr = FakeOCR(*[ocr_result(md) for md in pages_md])
+    pages = extract_pdf(files.scanned_pdf(tmp_path / "s.pdf", pages=3), ExtractConfig(), ocr)
+    for i, p in enumerate(pages, start=1):
+        assert "Arka Fintech Services" not in p.text and f"Page {i} of 3" not in p.text
+        assert p.printed_page == str(i) and f"Body text of page {i}" in p.text

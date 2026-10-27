@@ -28,6 +28,7 @@ _KEYS = {
     "ocr.max_edge_px": "ocr_max_edge_px",
     "ocr.prompt_version": "ocr_prompt_version",
     "ocr.thinking_level": "ocr_thinking_level",
+    "ocr.fallback_models": "ocr_fallback_models",
     "ocr.timeout_s": "ocr_timeout_s",
     "embed.timeout_s": "embed_timeout_s",
     "ocr.attempts": "ocr_attempts",
@@ -76,6 +77,8 @@ class ExtractConfig:
     # gemini-flash-latest timed out at 45 s on one page; gemini-3.5-flash with thinking "low" took about 3 s).
     ocr_model: str = "gemini-3.5-flash"
     ocr_thinking_level: str | None = "low"   # minimal, low, medium, high; None = the model's default
+    # the free tier allows only 20 requests a day per model on gemini-3.5-flash; these take over when it runs out
+    ocr_fallback_models: tuple[str, ...] = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
     ocr_timeout_s: int = 60                  # per call; a timeout is retried like a 503
     ocr_max_edge_px: int = 1600
     ocr_prompt_version: str = "ocr-v1"
@@ -138,6 +141,8 @@ class ExtractConfig:
             name = _KEYS[key]
             if name == "allowed_types":
                 value = tuple(str(v).lower().lstrip(".") for v in value)
+            elif name == "ocr_fallback_models":
+                value = tuple(value or ())
             elif name.startswith("ocr_price") and value is not None:
                 value = Decimal(str(value))
             elif name == "embed_dim":

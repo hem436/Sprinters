@@ -267,7 +267,13 @@ def text_to_blocks(text: str, tracker: SectionTracker, method: str = "text", mar
             blocks.append(table_block(rows, caption, unit, tracker.path, method))
             continue
         md_heading = re.match(r"^(#{1,6})\s+(.+)$", s) if markdown else None
-        level = len(md_heading.group(1)) if md_heading else numbered_level(s)
+        if md_heading:
+            # "## 4.2 Per diem" and "# 4.2 Per diem" are the same section: a number decides the level, so an OCR
+            # page and a text page of two versions of a document get the same section path (rule C1)
+            inner = md_heading.group(2).strip("*_ ")
+            level = numbered_level(inner) or len(md_heading.group(1))
+        else:
+            level = numbered_level(s)
         if level is None and not markdown and ALL_CAPS_HEADING.match(s) and len(s.split()) <= 10:
             level = 1
         if level:

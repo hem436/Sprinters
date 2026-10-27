@@ -161,3 +161,14 @@ def test_no_join_when_columns_differ_or_pages_apart():
 def test_table_without_periods_is_not_financial():
     rows = [["Name", "Role"], ["A. Kumar", "Director"], ["B. Singh", "CFO"]]
     assert analyse(TableIn(page=3, rows=rows), "t", _resolve) is None
+
+
+def test_next_statement_with_same_header_is_not_a_continuation():
+    """Bug found on the demo report: the standalone P&L (page 3) was joined to the consolidated P&L (page 2)."""
+    a = TableIn(page=2, rows=[PL_HEADER, *PL_ROWS], caption="for the year ended 31 March 2025 (₹ in crore)",
+                context="Consolidated Statement of Profit and Loss")
+    b = TableIn(page=3, rows=[PL_HEADER, *PL_ROWS], caption="for the year ended 31 March 2025 (₹ in crore)",
+                context="Standalone Statement of Profit and Loss")
+    assert len(join_continuations([a, b])) == 2
+    cont = TableIn(page=3, rows=[PL_HEADER, *PL_ROWS[6:]], caption="(continued)", context=a.context)
+    assert len(join_continuations([copy.deepcopy(a), cont])) == 1

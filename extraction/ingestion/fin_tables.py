@@ -126,12 +126,18 @@ def _starts_with_data(rows: list[list[str]]) -> bool:
     return bool(rows) and any(parse_number(c) is not None and parse_period(c) is None for c in rows[0][1:])
 
 
+CONTINUED = re.compile(r"contin|contd", re.IGNORECASE)
+
+
 def join_continuations(tables: list[TableIn]) -> list[TableIn]:
     out: list[TableIn] = []
     for t in tables:
         prev = out[-1] if out else None
+        # a statement that starts on the next page under its own title (consolidated P&L, then standalone P&L with
+        # the same header row) is a new table, not a continuation: found on the demo report
+        new_title = bool(t.caption) and not CONTINUED.search(t.caption)
         if (prev and t.page == max(prev.row_pages) + 1 and prev.last_on_page and t.first_on_page
-                and len(t.rows[0]) == len(prev.rows[0])):
+                and len(t.rows[0]) == len(prev.rows[0]) and not new_title and t.context == prev.context):
             if _row_key(t.rows[0]) == _row_key(prev.rows[0]):            # header repeated on the next page
                 prev.rows += t.rows[1:]
                 prev.row_pages += [t.page] * (len(t.rows) - 1)
@@ -220,7 +226,7 @@ def analyse(t: TableIn, table_id: str, resolve: Callable[[str], str], review_unm
         ft.checks.append({"check": "OCR_SOURCE", "ok": False,
                           "detail": "read by the vision model: a confident wrong digit cannot be seen (gap G7)"})
 
-    suspect, unmapped, rounded = [], [], []
+    suspect, unmapped, rounded, other_segment_rows = [], [], [], []
     in_segment_block = statement == "SEGMENT"
     amount_rows = False
     data_no = 0
@@ -241,7 +247,9 @@ def analyse(t: TableIn, table_id: str, resolve: Callable[[str], str], review_unm
         if statement == "SEGMENT" and not metric:
             if in_segment_block and not SEGMENT_SKIP.match(norm) and not is_total_label(label):
                 metric, segment = "segment_revenue", label
-        if not metric:
+        if not metric and statement == "SEGMENT" and not in_segment_block:
+            other_segment_rows.append(label)       # segment results or assets: segment names, not labels to map
+        elif not metric:
             unmapped.append(label)
         for j, period in columns:
             cell = values.get(j)
@@ -274,6 +282,10 @@ def analyse(t: TableIn, table_id: str, resolve: Callable[[str], str], review_unm
         ft.checks.append({"check": "UNMAPPED", "ok": not review_unmapped, "labels": unmapped})
     if rounded:
         ft.checks.append({"check": "ROUNDED", "ok": True, "cells": rounded})
+    if other_segment_rows:
+        ft.checks.append({"check": "SEGMENT_ROWS_NOT_REVENUE", "ok": True,
+                          "rows": list(dict.fromkeys(other_segment_rows)),
+                          "detail": "rows under segment results or assets are stored as text only"})
     ft.checks += totals
     return ft
 

@@ -1,4 +1,3 @@
-Arka Fintech Services - Internal
 4 Travel
 4.1 Flights
 Book economy class for flights under 6 hours. Business class needs approval from a director.
@@ -11,4 +10,3 @@ Bengaluru  1,400
 Other cities  1,000
 4.3 Hotels
 Stay in a hotel from the approved list. A hotel outside the list needs approval from the travel desk.
-Page 2 of 3
