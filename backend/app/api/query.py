@@ -140,7 +140,7 @@ async def query_stream(body: QueryRequest, request: Request, agent=Depends(get_a
             try:
                 event, data = await asyncio.wait_for(queue.get(), timeout=0.1)
                 yield _sse(event, data)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
         try:
             response = task.result()
