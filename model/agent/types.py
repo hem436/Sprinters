@@ -117,6 +117,7 @@ class CitationOut(BaseModel):
     section: str | None = None
     method: str | None = None
     url: str | None = None
+    snippet: str | None = None       # CHANGES DC-4 (Hemant): the cited passage, so the chat can show it
     tool: str | None = None
     args: dict | None = None
     row_count: int | None = None

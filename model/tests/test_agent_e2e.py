@@ -46,6 +46,8 @@ def test_both_route_tool_and_policy(corpus, table_reranker):
     assert (r.route, r.outcome, r.reason_code) == ("BOTH", "SUCCESS", "OK")
     assert tools.calls == [("budget_status", args)]
     assert [c.kind for c in r.citations] == ["tool", "document"]
+    assert r.tool_results[0]["id"] == "T1" == r.citations[0].id
+    assert r.citations[1].snippet.startswith("Spend above the approved project budget")
 
 
 def test_no_evidence_fallback_skips_the_answer_model(corpus, table_reranker):

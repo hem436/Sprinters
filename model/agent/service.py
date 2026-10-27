@@ -64,8 +64,9 @@ def _response(state: AgentState, query_id: str, cfg: AgentConfig, latency_ms: in
         confidence=confidence(outcome, top, kind, cfg),
         route="BLOCKED" if state.get("blocked") else state["route"].route,
         citations=_citations(state),
-        tool_results=[{"tool": t.tool, "status": t.status, "summary": t.summary, "args": t.args}
-                      for t in state.get("tools", [])],
+        # "id" is the evidence id the answer cites (T1, T2...), so the chat can link a claim to its tool result
+        tool_results=[{"id": f"T{i}", "tool": t.tool, "status": t.status, "summary": t.summary, "args": t.args}
+                      for i, t in enumerate(state.get("tools", []), start=1)],
         conflict=facts.conflict,
         usage=UsageOut(tokens_in=sum(r.tokens_in for r in replies), tokens_out=sum(r.tokens_out for r in replies),
                        estimated=any(r.usage_source == "ESTIMATED" for r in replies)),
@@ -109,7 +110,14 @@ def _citation(e: Evidence) -> CitationOut:
     c = e.chunk
     url = f"/documents/{c.document_id}/pages/{c.page}" if c.page is not None else f"/documents/{c.document_id}"
     return CitationOut(id=e.id, kind="document", title=c.title, version=c.version, page=c.page,
-                       section=c.section, method=c.method, url=url)
+                       section=c.section, method=c.method, url=url, snippet=_snippet(c.text))
+
+
+SNIPPET_CHARS = 300      # enough for one or two sentences in the chat's source viewer
+
+
+def _snippet(text: str) -> str:
+    return text if len(text) <= SNIPPET_CHARS else text[:SNIPPET_CHARS].rsplit(" ", 1)[0] + " ..."
 
 
 def _record(recorder: RecorderPort, state: AgentState, response: QueryResponse, cfg: AgentConfig) -> None:

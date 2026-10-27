@@ -84,7 +84,9 @@ config decides the model there). Check the model names on the provider's list on
 3. **Model names in one place** (Sinngam and Arka). `config/app.yaml` has `llm.route_model` and `llm.answer_model`;
    `llm_from_env` reads `LLM_MODEL`. Proposal: names from `app.yaml`, keys only in `.env`; add an `agent:` section
    with the keys of `agent/config.py`.
-4. **Search** (Myank). Nothing to plug in yet; the agent runs on `StubSearch` until then.
+4. **Search** (Myank): done. `extraction/ingestion/search.py` `SearchService` fits `SearchPort`; checked by ingesting
+   two policy PDFs with his pipeline and asking the agent (conflict found, both versions cited with page and section).
+5. **Front end** (Hemant): add `OK_SMALLTALK` to `ReasonCode`; `page` can be null for DOCX and TXT sources.
 
 ## Next
 
