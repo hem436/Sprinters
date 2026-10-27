@@ -123,25 +123,36 @@ def _fmt(v) -> str:
     return str(v)
 
 
+NEIGHBOURS = 2     # OCR pages on each side of a gold page: the running-header rule compares pages (review C5)
+
+
 def evaluate(gold_dir: Path, docs_dir: Path, cfg, ocr, use_ocr: bool = True) -> list[dict]:
+    """Extract each gold document once. With OCR, only the gold pages and up to NEIGHBOURS pages on each side are
+    OCR'd. Without OCR, a page is skipped when its ACTUAL class needs OCR (not the class the gold expects)."""
+    from ingestion.loaders.pdf import OCR_CLASSES
     from ingestion.pipeline import extract_pages
     from ingestion.quality import score_page
 
     entries = yaml.safe_load((gold_dir / "gold.yaml").read_text(encoding="utf-8"))
-    k = SimpleNamespace(cfg=cfg, ocr=ocr)
+    k = SimpleNamespace(cfg=cfg, ocr=ocr if use_ocr else None)
+    wanted: dict[str, set[int]] = {}
+    for e in entries:
+        wanted.setdefault(e["file"], set()).update(range(e["page"] - NEIGHBOURS, e["page"] + NEIGHBOURS + 1))
     cache: dict[str, list] = {}
     rows = []
     for e in entries:
         path = docs_dir / e["file"]
         ext = path.suffix.lower().lstrip(".")
         file_type = {"jpeg": "jpg", "tiff": "tif"}.get(ext, ext)
-        if not use_ocr and (file_type in ("png", "jpg", "tif", "webp") or e["expected_class"] in ("SCANNED", "GARBLED")):
-            continue
+        if not use_ocr and file_type in ("png", "jpg", "tif", "webp"):
+            continue                                       # an image is always read by OCR
         if e["file"] not in cache:
-            cache[e["file"]] = extract_pages(path, file_type, k)
+            cache[e["file"]] = extract_pages(path, file_type, k, ocr_only=wanted[e["file"]])
             for p in cache[e["file"]]:
                 score_page(p, cfg)
         page = next((p for p in cache[e["file"]] if p.page == e["page"]), None)
+        if not use_ocr and page is not None and page.page_class in OCR_CLASSES:
+            continue
         gold_text = (gold_dir / f"{e['name']}.txt").read_text(encoding="utf-8")
         gold_csv = gold_dir / f"{e['name']}.csv"
         gold_table = list(csv.reader(gold_csv.open(encoding="utf-8"))) if gold_csv.exists() else None

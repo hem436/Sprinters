@@ -109,9 +109,11 @@ def _looks_like_text(path: Path) -> bool:
         sample = f.read(65536)
     if b"\x00" in sample:
         return False
+    import codecs
     for enc in ("utf-8", "cp1252"):
         try:
-            sample.decode(enc)
+            # incremental: a character cut in two at the 64 KB boundary is not an error (review B7)
+            codecs.getincrementaldecoder(enc)().decode(sample, final=False)
             return True
         except UnicodeDecodeError:
             continue

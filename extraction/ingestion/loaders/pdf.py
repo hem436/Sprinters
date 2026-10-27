@@ -15,7 +15,7 @@ from pathlib import Path
 import pdfplumber
 
 from ingestion.classify import PageSignals, classify, page_signals
-from ingestion.clean import EDGE_LINES, is_edge_noise, printed_page_number, repeated_edge_lines
+from ingestion.clean import EDGE_LINES, edge_number, is_edge_noise, printed_page_number, repeated_edge_lines
 from ingestion.config import ExtractConfig
 from ingestion.layout import SectionTracker, body_size, heading_level, lines_to_blocks, reading_order, text_to_blocks
 from ingestion.ocr import OcrEngine, OcrFailed, render_pdf_page
@@ -30,7 +30,9 @@ Progress = Callable[[str, int, int], None]
 
 
 def extract_pdf(path: Path | str, cfg: ExtractConfig, ocr: OcrEngine | None,
-                progress: Progress | None = None) -> list[PageResult]:
+                progress: Progress | None = None, ocr_only: set[int] | None = None) -> list[PageResult]:
+    """`ocr_only`: OCR only these pages (the quality check); other pages that need OCR get no text and the signal
+    `ocr_skipped`."""
     path = str(path)
     pages: list[PageResult] = []
     raw: dict[int, dict] = {}       # page -> {"lines": [...], "tables": [...], "body": float}
@@ -45,6 +47,7 @@ def extract_pdf(path: Path | str, cfg: ExtractConfig, ocr: OcrEngine | None,
                 page_class = classify(signals, cfg)
                 result = PageResult(page=index, page_class=page_class, method="", chars=signals.chars,
                                     tables=signals.tables, signals=signals.as_dict())
+                result.signals["page_size"] = [float(page.width), float(page.height)]
                 if page_class in ("TEXT", "TABLE_HEAVY", "MIXED"):
                     raw[index] = _text_layer(page, cfg)
             except Exception as e:  # pdfplumber failed on this page: pypdf text for this page only
@@ -56,6 +59,11 @@ def extract_pdf(path: Path | str, cfg: ExtractConfig, ocr: OcrEngine | None,
 
     # OCR first (one page bitmap at a time), so running headers can be found on OCR pages too
     ocr_pages = [p for p in pages if p.page_class in OCR_CLASSES]
+    if ocr_only is not None:
+        for p in ocr_pages:
+            if p.page not in ocr_only:
+                p.signals["ocr_skipped"] = True
+        ocr_pages = [p for p in ocr_pages if p.page in ocr_only]
     for n, result in enumerate(ocr_pages, start=1):
         if progress:
             progress("ocr", n, len(ocr_pages))
@@ -111,7 +119,7 @@ def _strip_ocr_edges(result: PageResult, lines: list[tuple[str, str]], repeated)
     drop = set()
     for i, (plain, raw) in enumerate(lines):
         if not raw.lstrip().startswith("|") and is_edge_noise(plain, i, len(lines), repeated):
-            number = printed_page_number(plain)
+            number = printed_page_number(plain) or edge_number(plain)
             if number and not result.printed_page:
                 result.printed_page = number
             result.removed_lines.append(plain)
@@ -149,23 +157,31 @@ def _text_blocks(result: PageResult, info: dict, repeated: tuple[set[str], set[s
     kept = []
     for i, ln in enumerate(lines):
         # "(₹ in crore)" sits at the top of most statement pages: it repeats, but it is the table's unit, not noise
-        is_unit_line = len(ln.text.strip()) <= 40 and bool(find_unit(ln.text))
+        # protected only at the top of the page and only when the line is the unit phrase itself; a footer such as
+        # "Annual Report 2024-25 | ₹ in crore | 12" is still removed and its page number read (review C3)
+        unit = find_unit(ln.text) if i < EDGE_LINES else ""
+        is_unit_line = bool(unit) and len(unit) >= 0.6 * len(ln.text.strip())
         if not is_unit_line and is_edge_noise(ln.text, i, len(lines), repeated,
                                               is_heading=heading_level(ln, body) is not None):
-            number = printed_page_number(ln.text) if (i < EDGE_LINES or i >= len(lines) - EDGE_LINES) else None
+            number = printed_page_number(ln.text) or edge_number(ln.text)
             if number and not result.printed_page:
                 result.printed_page = number
             result.removed_lines.append(ln.text)
             continue
         kept.append(ln)
     if info.get("two_columns"):
-        result.flags.append("TWO_COLUMN")
+        result.signals["two_column"] = True       # a signal, not a flag: the web app has a fixed flag list
     # the body font, without the running header and footer; on a page with very few lines (a statement page with a
     # title, a caption and a table) the most common size can be the title's, so take the smallest size instead
     if len(kept) >= 4:
         body = body_size(kept) or body
     elif kept:
-        body = min(ln.size for ln in kept)
+        # few lines: leave out the short lines in the largest font (titles), then the most common font by characters.
+        # A page of a title and a unit line gets the unit's font; a page of 2 paragraphs and a footnote keeps the
+        # paragraphs' font, so its lines do not become headings (review C4)
+        top_size = max(round(ln.size, 1) for ln in kept)
+        rest = [ln for ln in kept if not (round(ln.size, 1) == top_size and len(ln.text.split()) <= 12)]
+        body = body_size(rest or kept) or body
 
     # place each table among the lines by its top; the line just above it is its caption
     tables = sorted(info["tables"], key=lambda t: t["bbox"][1])
@@ -208,6 +224,20 @@ def _pypdf_page_text(path: str, page_no: int) -> str:
         return ""
 
 
+def _crop(image, box, page_size):
+    """Cut the image region (PDF points, top-left origin) out of the page render, with a small margin."""
+    if not page_size:
+        return image
+    sx, sy = image.width / page_size[0], image.height / page_size[1]
+    x0, top, x1, bottom = box
+    m = 6
+    region = (max(0, int((x0 - m) * sx)), max(0, int((top - m) * sy)),
+              min(image.width, int((x1 + m) * sx)), min(image.height, int((bottom + m) * sy)))
+    cropped = image.crop(region)
+    image.close()
+    return cropped
+
+
 def _ocr_page(path: str, result: PageResult, cfg: ExtractConfig, ocr: OcrEngine | None) -> None:
     """X5 for one page: sets result.ocr_result and usage, or flags OCR_FAILED. Blocks are made later, in page order."""
     if ocr is None:
@@ -216,6 +246,10 @@ def _ocr_page(path: str, result: PageResult, cfg: ExtractConfig, ocr: OcrEngine 
         return
     try:
         image = render_pdf_page(path, result.page, cfg.ocr_max_edge_px)
+        box = result.signals.get("image_box")
+        if result.page_class == "MIXED" and box:
+            # a MIXED page has a text layer: read only the picture, or its text is indexed twice (review B5)
+            image = _crop(image, box, result.signals.get("page_size"))
         try:
             out = ocr.read(image)
         finally:

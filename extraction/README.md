@@ -172,8 +172,25 @@ For Arka: with these embeddings an unrelated question ("CEO salary") still gets 
 relevant top hits score 0.73 to 0.84. Config A's `obs_relevance_min_vector` of 0.6 lets the unrelated one through;
 about 0.70 separates them on this corpus.
 
+## Review fixes (issue #10) and web app shapes (issue #48)
+
+Every finding of the 3 reviews has a test in `tests/test_review_fixes.py`. The ones that change behaviour:
+
+- **Failure:** a failed ingest or re-index removes the document's chunks, vectors, BM25 entries and facts, sets
+  FAILED and applies versions again, so the policy keeps a current version. Facts are built in memory first and
+  written in one transaction; an error while building them keeps the last good facts.
+- **One worker per document:** a job first moves its document from QUEUED to EXTRACTING in one SQL statement; only
+  one process can win. `get_default()` no longer restarts jobs. **Sinngam: call `service.resume_pending()` once when
+  the API starts.**
+- **Prices:** OCR cost uses the price of the model that answered, from `backend/config/model_prices.yaml` and
+  `extraction/config/model_prices.yaml` (a row there wins). A model the pricing page does not list stays "price not
+  set".
+- **Shapes the web app reads:** documents have `pages` and `chunks`; jobs have `title`; tables have `document_id`,
+  `unit` and `checks: [{name, passed, detail}]`; page flags are only HANDWRITTEN, HAS_TABLE, NUMBER_SUSPECT,
+  INJECTION_SUSPECT, OCR_FAILED, BLANK, GARBLED; `Chunk.current` is filled for the agent.
+
 ## Not done yet
 
 - Real photos of 2 handwritten notes and their typed gold text; optionally a page of a real public annual report.
-- Connection to Sinngam's routes (merge point M-2).
+- Tesla `.xlsx` proposal (issue #48): decide with Sinngam.
 - Tesseract fallback (MAY in contract 10).

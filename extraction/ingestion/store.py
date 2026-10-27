@@ -106,8 +106,13 @@ class KnowledgeStore:
         self._memory_conn = sqlite3.connect(":memory:", check_same_thread=False) if self.db_path == ":memory:" else None
         with self.tx() as c:
             c.executescript(SCHEMA)
-        from ingestion.fin_store import FIN_SCHEMA  # contract 14 tables live in the same file
+        from ingestion.fin_store import FIN_SCHEMA, MIGRATIONS  # contract 14 tables live in the same file
         with self.tx() as c:
+            for table, column, ddl in MIGRATIONS:        # an older knowledge.db gets the new columns
+                cols = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
+                if cols and column not in cols:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+            c.execute("DROP VIEW IF EXISTS v_fact_current")   # views hold no data: always the current definition
             c.executescript(FIN_SCHEMA)
 
     # ---- connections -------------------------------------------------------------------------------------------
@@ -183,6 +188,13 @@ class KnowledgeStore:
         sets = ", ".join(f"{k} = ?" for k in fields)
         with self.tx() as c:
             c.execute(f"UPDATE document SET {sets} WHERE document_id = ?", [*fields.values(), document_id])
+
+    def claim_for_extraction(self, document_id: str) -> bool:
+        """QUEUED -> EXTRACTING in one statement: only one worker in one process can win (review D5)."""
+        with self.tx() as c:
+            cur = c.execute("UPDATE document SET status = 'EXTRACTING', error = NULL "
+                            "WHERE document_id = ? AND status = 'QUEUED'", (document_id,))
+            return cur.rowcount == 1
 
     def versions_of(self, doc_key: str) -> list[dict]:
         """All live versions of a document, newest effective date first."""
@@ -292,4 +304,4 @@ def to_chunk(row: dict) -> Chunk:
     return Chunk(chunk_id=row["chunk_id"], document_id=row["document_id"], doc_key=row["doc_key"], title=row["title"],
                  version=row["version"], effective_date=row["effective_date"], page=row["page"],
                  section=row["section"], method=row["method"], text=row["text"],
-                 injection_suspect=bool(row["injection_suspect"]))
+                 injection_suspect=bool(row["injection_suspect"]), current=bool(row["current"]))
