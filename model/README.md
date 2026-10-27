@@ -16,11 +16,11 @@ python -m pytest -q          # 53 tests, no network, no keys: search, tools and 
 |---|---|
 | `agent/safety.py` | S1 guard, S2 injection check, S3 PII masking, V4 output check (canary, injected sentences, PII) |
 | `agent/context.py` | M1 conversation window: last 3 turns, blocked turns skipped, masked, cut to 600 characters |
-| `agent/router.py`, `prompts/route-v1.txt` | R1 and R1b: greeting rule, planner JSON, rule override (SQL or BOTH), `ROUTE_FALLBACK` |
+| `agent/router.py`, `prompts/route-v1.txt` | R1 and R1b: greeting rule, planner JSON, rule override (SQL or BOTH), re-ask for the tool, `ROUTE_NO_TOOL` (no approved tool fits: the planner's route stands), `ROUTE_FALLBACK` |
 | `agent/retrieval.py` | H1 to H4: vector + BM25, RRF (k = 60), rerank to 5; config A (vector top 5) and B; C1 conflicts |
 | `agent/numbers.py` | exact numbers in text (Indian grouping, brackets as negatives) for C1 and V2 |
-| `agent/answer.py`, `prompts/answer-v1.txt` | A1 evidence tags, A2 answer JSON, A4 token budget, G1 fixed texts, V3 one repair |
-| `agent/validate.py` | V1 citations in evidence, V2 grounding (numbers by value, half the content words) |
+| `agent/answer.py`, `prompts/answer-v2.txt` | A1 evidence tags, A2 answer JSON, A4 token budget (a C1 group whole or skipped), G1 fixed texts, V3 one repair |
+| `agent/validate.py` | V1 citations in evidence, V2 grounding (numbers by value in the cited passage, not the tag; half the content words, by stem) |
 | `agent/outcome.py` | contract 11 section 5 outcome rules in order, confidence, relevance threshold per config |
 | `agent/graph.py` | the LangGraph graph: guard, plan, retrieve, tool, generate, validate |
 | `agent/service.py` | `Agent.answer(...)`, the in-memory session store, the QueryResponse of contract 05 |
@@ -79,6 +79,9 @@ config decides the model there). Check the model names on the provider's list on
 - A greeting gets reason code `OK_SMALLTALK` (added to contract 11's list: small talk has no evidence to cite).
 - A conflict counts only when the answer shows both versions; if code found one the answer hid, `conflict_not_shown`
   goes to the drill-down.
+- The word rules force the data route only when the planner, asked once more, finds an approved tool for it.
+  Otherwise the planner's own route stands (`ROUTE_NO_TOOL`), so "How many days of paid leave do employees get?"
+  is answered from the FAQ, not with "cannot answer". Trade-off: one extra planner call on those questions.
 
 ## Evaluation (WP-AG6)
 

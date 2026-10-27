@@ -82,10 +82,10 @@ def main() -> int:
     llm = llm_from_env()
     print(f"model {llm.models}, endpoint {llm.url.split('/')[2]}")
     agent = Agent(KeywordSearch(CHUNKS), StubTools(results={"budget_status": P104}), llm, FlashRankReranker())
-    for question in QUESTIONS:
+    for n, question in enumerate(QUESTIONS, start=1):
         started = time.perf_counter()
         recorder = NullRecorder()
-        r = agent.answer(question, f"live-{len(question)}", recorder)
+        r = agent.answer(question, f"live-{n}", recorder)      # one session per question (review #25, fourth)
         flags = recorder.finished.get("safety_flags") if recorder.finished else []
         print(f"\nQ: {question}\n   {r.route} {r.outcome}/{r.reason_code} {r.confidence}  "
               f"{time.perf_counter() - started:.1f} s, tokens {r.usage.tokens_in}+{r.usage.tokens_out}  flags {flags}")

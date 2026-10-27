@@ -15,10 +15,12 @@ _DATA_IDS = re.compile(r"\b(P-\d{3}|EXP-\d+|D-[A-Z]{2,}|LT-\d+|E\d{4})\b")
 # R1: words that ask for a computed number. Policies use them too ("How many days of paid leave?", "What is the meal
 # budget per day?"), so they need data only when the question also names a thing the business data holds (review #25).
 _MEASURE_WORDS = re.compile(r"\b(total|how many|count|spent|spend|headcount|sum|average|overspen\w*|budgets?)\b", re.I)
-# R1: the things in the business data (contract 13 schema): projects, departments, assets, employees. A department
-# name must not match inside a document id such as POL-HR-014.
-_DATA_THINGS = re.compile(r"(?<![\w-])(projects?|departments?|laptops?|assets?|devices?|employees?|staff|"
-                          r"engineering|finance|human resources|operations)(?![\w-])", re.I)
+# R1: the things in the business data (contract 13 schema): projects, departments, assets, employees, claims, spend.
+# A department name must not match inside a document id such as POL-HR-014. "claims" is plural on purpose: "submit a
+# travel claim" is a policy question (C02), "how many claims are pending" is data (review #25, fourth).
+_DATA_THINGS = re.compile(r"(?<![\w-])(projects?|departments?|laptops?|assets?|devices?|employees?|staff|claims|"
+                          r"headcount|spend|spent|spending|engineering|finance|human resources|operations)(?![\w-])",
+                          re.I)
 # R1b: financial-report numbers (contract 14 section 7): a metric with a period, or a comparison word.
 _METRIC_WORDS = re.compile(r"\b(revenue|profit|pat|pbt|ebitda|margin|eps|income|cash flow|borrowings|segment)\b", re.I)
 _PERIOD = re.compile(r"\b(FY\s?\d{2,4}(-\d{2})?|20\d{2}|Q[1-4])\b", re.I)
@@ -76,7 +78,9 @@ def route_question(question: str, context: list[Turn], llm: LLMPort, tools: Tool
     """R1: greetings by rule; otherwise ask the planner, then let the rules correct the route.
 
     A rule override changes the route but cannot choose a tool, so the planner is asked once more for the tool
-    (an extra model call only in that case). A data route that still has no tool is settled by settle_tool().
+    (an extra model call only in that case). If no approved tool fits even then, the words were not about the
+    business data ("How many days of paid leave do employees get?"), so the planner's own route stands, with reason
+    ROUTE_NO_TOOL (review #25, fourth). A data route that still has no tool is settled by settle_tool().
     """
     if _GREETING.match(question):
         return RouteDecision("CONVERSATIONAL", question, reason="RULE_GREETING"), []
@@ -85,7 +89,8 @@ def route_question(question: str, context: list[Turn], llm: LLMPort, tools: Tool
     system = _PROMPT.replace("{tools}", json.dumps(catalogue, indent=1))
     user = _planner_input(question, context)
     replies = [llm.complete(system, user, purpose="route")]
-    decision = only_approved(apply_rules(parse_planner(replies[0].text, question), question), approved)
+    planner = only_approved(parse_planner(replies[0].text, question), approved)
+    decision = apply_rules(planner, question)
     if decision.reason == "RULE_OVERRIDE" and decision.tool is None:
         try:
             replies.append(llm.complete(system, user + FORCE_DATA_NOTE.format(route=decision.route), purpose="route"))
@@ -93,7 +98,10 @@ def route_question(question: str, context: list[Turn], llm: LLMPort, tools: Tool
             decision = RouteDecision(decision.route, decision.standalone_query, second.tool, second.tool_args,
                                      "RULE_OVERRIDE")
         except LLMError:
-            pass        # review #25: keep the first answer and the override; settle_tool decides without a tool
+            pass        # review #25: keep the first answer; without a tool the planner's route stands (below)
+        if decision.tool is None:
+            decision = RouteDecision(planner.route, planner.standalone_query, planner.tool, planner.tool_args,
+                                     "ROUTE_NO_TOOL")
     return settle_tool(decision), replies
 
 

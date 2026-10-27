@@ -169,7 +169,7 @@ def _facts(state: dict) -> QueryFacts:
         conversational=state.get("conversational", False),
         fallback=state.get("fallback", False),
         tool_needed=bool(route and route.route in ("SQL", "BOTH")),
-        tool_failed=any(t.status not in ("OK", "EMPTY") for t in tools),
+        tool_failed=any(t.status not in ("OK", "EMPTY", "NO_TOOL") for t in tools),     # NO_TOOL: nothing failed
         citations_valid=sum(c.valid for c in checks),
         citations_total=len(checks),
         grounding_score=state.get("grounding", 0.0),

@@ -58,13 +58,17 @@ def check_grounding(answer: AnswerJSON, evidence: dict[str, Evidence]) -> tuple[
 
 
 def _check_claim(claim: Claim, evidence: dict[str, Evidence]) -> ClaimCheck:
-    cited = " ".join(cited_text(evidence[c]) for c in claim.citations if c in evidence)
-    if not cited:
+    items = [evidence[c] for c in claim.citations if c in evidence]
+    if not items:
         return ClaimCheck(claim.text, claim.citations, False, "no valid citation")
-    text, cited = normalise(claim.text), normalise(cited)
-    missing = numbers_in(text) - numbers_in(cited)
+    text = normalise(claim.text)
+    # numbers: only the cited passages count. The claim may name the version, date, page or section of its tag, but
+    # those are taken out first, so "page 3" or "version 2.0" never grounds "3 laptops" (review #25, fourth)
+    passages = normalise(" ".join(e.text for e in items))
+    missing = numbers_in(_without_tag_refs(text, items)) - numbers_in(passages)
     if missing:
         return ClaimCheck(claim.text, claim.citations, False, f"numbers not in the cited text: {sorted(map(str, missing))}")
+    cited = normalise(" ".join(cited_text(e) for e in items))
     words = _stems(text)
     overlap = len(words & _stems(cited)) / len(words) if words else 1.0
     if overlap < MIN_WORD_OVERLAP:
@@ -81,9 +85,29 @@ def cited_text(e: Evidence) -> str:
     return f"{c.title} version {c.version} effective {c.effective_date} page {c.page} section {c.section} {e.text}"
 
 
+def _without_tag_refs(text: str, items: list[Evidence]) -> str:
+    """The claim without the tag facts it names: "version 2.0", the effective date, "page 3", "section 4.2"."""
+    for e in items:
+        c = e.chunk
+        if c is None:
+            continue
+        refs = [rf"\b(?:version|ver\.?|v)\s*{re.escape(str(c.version))}(?!\d|\.\d)", re.escape(str(c.effective_date))]
+        if c.page is not None:
+            refs.append(rf"\b(?:page|p\.)\s*{c.page}(?!\d)")
+        refs += [rf"\b(?:section|sec\.?|§)\s*{re.escape(n)}(?!\d|\.\d)"
+                 for n in re.findall(r"(?:^|>)\s*(\d+(?:\.\d+)*)", str(c.section or ""))]
+        for ref in refs:
+            text = re.sub(ref, " ", text, flags=re.IGNORECASE)
+    return text
+
+
 # Models write non-breaking and typographic hyphens ("P‑104", "FY2026‑27"); compare them as "-" (first live run).
 _DASHES = str.maketrans({c: "-" for c in "‐‑‒–—―−"} | {" ": " ", " ": " "})
-STEM_CHARS = 4      # light stemming: "spending" and "spent" share "spen"; a rule anyone can check by hand
+# Light stemming that anyone can check by hand: cut one common ending, then a final "e". It replaced 4-letter
+# prefixes, which joined unrelated words such as approval and approximately (review #25, fourth).
+_SUFFIXES = ("ations", "ation", "ments", "ment", "ings", "ing", "ions", "ion", "ies", "ied", "ed", "es", "s", "ly")
+_IRREGULAR = {"spent": "spend", "paid": "pay"}
+MIN_STEM = 4
 
 
 def normalise(text: str) -> str:
@@ -94,6 +118,18 @@ def _content_words(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z][a-z0-9-]{2,}", text.lower()) if w not in _STOPWORDS}
 
 
+def stem(word: str) -> str:
+    """"spending", "spends" and "spent" give "spend"; "policies" gives "policy"; "approval" stays apart from
+    "approximately"."""
+    if word in _IRREGULAR:
+        return _IRREGULAR[word]
+    for suffix in _SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= MIN_STEM and not (suffix == "s" and word.endswith("ss")):
+            word = word[:-len(suffix)] + ("y" if suffix in ("ies", "ied") else "")
+            break
+    return word[:-1] if word.endswith("e") and len(word) > MIN_STEM else word
+
+
 def _stems(text: str) -> set[str]:
-    """Content words cut to their first STEM_CHARS letters, so a paraphrase of the same word still counts."""
-    return {w[:STEM_CHARS] for w in _content_words(text)}
+    """Content words as stems, so another form of the same word still counts."""
+    return {stem(w) for w in _content_words(text)}

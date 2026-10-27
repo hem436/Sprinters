@@ -55,10 +55,11 @@ def test_reported_both_without_a_tool_drops_to_docs():
     assert (decision.route, decision.tool, decision.reason, len(llm.calls)) == ("DOCS", None, "ROUTE_NO_TOOL", 2)
 
 
-def test_reported_sql_without_a_tool_stays_sql():
-    """SQL with no tool keeps its route, so the user hears "cannot answer this from the approved data" (NO_TOOL)."""
+def test_override_without_a_tool_keeps_the_planners_route():
+    """Review #25 (fourth): no approved tool fits even after the re-ask, so the rule's "data" reading was wrong and the
+    planner's own route stands. A planner that itself says SQL with no tool still gets NO_TOOL (test_r3_7)."""
     decision, _ = _route("Compare Company A revenue FY2024 and FY2025", DOCS_NO_TOOL, second_reply=DOCS_NO_TOOL)
-    assert (decision.route, decision.tool, decision.reason) == ("SQL", None, "RULE_OVERRIDE")
+    assert (decision.route, decision.tool, decision.reason) == ("DOCS", None, "ROUTE_NO_TOOL")
 
 
 def test_planner_both_without_a_tool_drops_to_docs():
