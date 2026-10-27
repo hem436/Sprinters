@@ -100,7 +100,7 @@ def test_hits_and_chunks_match_the_agent_types(tmp_path, k):
     chunk = s.get_chunks([hit.chunk_id])[0]
     assert [f.name for f in dataclasses.fields(chunk)] == [
         "chunk_id", "document_id", "doc_key", "title", "version", "effective_date", "page", "section", "method",
-        "text", "injection_suspect"]
+        "text", "injection_suspect", "current"]
     assert chunk.document_id == doc_id and chunk.page == 1
 
 

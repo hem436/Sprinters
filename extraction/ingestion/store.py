@@ -292,4 +292,5 @@ def to_chunk(row: dict) -> Chunk:
     return Chunk(chunk_id=row["chunk_id"], document_id=row["document_id"], doc_key=row["doc_key"], title=row["title"],
                  version=row["version"], effective_date=row["effective_date"], page=row["page"],
                  section=row["section"], method=row["method"], text=row["text"],
-                 injection_suspect=bool(row["injection_suspect"]))
+                 injection_suspect=bool(row["injection_suspect"]),
+                 current=bool(row["current"]) if row.get("current") is not None else None)

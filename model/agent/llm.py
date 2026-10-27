@@ -25,10 +25,12 @@ CALL_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, Timeou
 MAX_RATE_WAIT_S = 6.0
 # Contract 06: AI-4 (route) 10 s, AI-5 (answer) 30 s, for all models and waits of one call together (review #25)
 DEADLINE_S = {"route": 10.0, "answer": 30.0, "repair": 30.0}
-# While other models are left to try, one model may use at most this share of the time left, so a slow primary
-# never uses up the whole deadline and the fallback always gets its turn (review #25: 30 s answer = 30 s request).
-ATTEMPT_SHARE = 0.6
-DEFAULT_ROUTE_MODEL = "openai/gpt-oss-20b"      # backend/config/app.yaml llm.route_model; used on Groq only
+# While other models are left to try, each model leaves this many seconds of the deadline for the next one, so a
+# slow primary never uses up the whole deadline (review #25: 30 s answer = 30 s request), and a slow but healthy
+# primary still gets most of it (22 s of 30, 7 s of 10). Failures are usually a fast 429, so later models rarely
+# start late; when they do, the contract 06 deadline wins over trying every model (review #25, next round).
+RESERVE_S = {"route": 3.0, "answer": 8.0, "repair": 8.0}
+DEFAULT_ROUTE_MODEL = "openai/gpt-oss-20b"      # backend/config/app.yaml llm.route_model; the built-in one on Groq only
 GROQ_URL = "https://api.groq.com/openai/v1"
 
 
@@ -69,7 +71,8 @@ class OpenAICompatibleLLM:
                 if left <= 0:
                     errors.append(f"{model}: not tried, the {purpose} deadline passed")
                     raise LLMError("; ".join(errors))
-                share = left if n == len(models) - 1 else left * ATTEMPT_SHARE     # leave room for the next model
+                reserve = 0.0 if n == len(models) - 1 else RESERVE_S.get(purpose, 0.0)
+                share = max(left - reserve, left / 2)          # leave room for the next model, never below half
                 try:
                     return self._call(model, system, user, json_mode, timeout_s=min(self.timeout_s, share))
                 except urllib.error.HTTPError as error:            # before CALL_ERRORS: it is also a URLError
@@ -146,12 +149,12 @@ def _retry_after(error: urllib.error.HTTPError, body: str) -> float | None:
 def llm_from_env(route_model: str | None = None) -> OpenAICompatibleLLM:
     """Build the client from environment variables (names in model/.env.example). Keys never live in code.
 
-    The planner model: LLM_ROUTE_MODEL if set. Otherwise, on Groq only, the caller's value (the back end passes
-    app.yaml llm.route_model) or DEFAULT_ROUTE_MODEL. Another provider may not serve that Groq model name, and a
-    planner that always starts on a missing model fails every plan (review #25), so there the planner uses the
-    normal model list."""
+    The planner model: LLM_ROUTE_MODEL if set, else the caller's value (the back end passes app.yaml
+    llm.route_model; set it to null for a provider without that model). The built-in DEFAULT_ROUTE_MODEL is a Groq
+    model name, so it is used only when the base URL is Groq's (review #25, two rounds). A route model the provider
+    does not have fails fast (404) and the next model is tried."""
     base_url = os.getenv("LLM_BASE_URL", GROQ_URL)
-    on_groq = base_url.rstrip("/") == GROQ_URL
+    on_groq = "groq.com" in base_url
     headers = {}
     if os.getenv("PORTKEY_API_KEY"):
         headers["x-portkey-api-key"] = os.environ["PORTKEY_API_KEY"]
@@ -165,5 +168,5 @@ def llm_from_env(route_model: str | None = None) -> OpenAICompatibleLLM:
         extra_headers=headers,
         # comma list, for example "qwen/qwen3.8-27b,openai/gpt-oss-safeguard-20b": more models, more per-minute room
         more_models=tuple(m.strip() for m in os.getenv("LLM_MORE_MODELS", "").split(",") if m.strip()),
-        route_model=os.getenv("LLM_ROUTE_MODEL") or ((route_model or DEFAULT_ROUTE_MODEL) if on_groq else None),
+        route_model=os.getenv("LLM_ROUTE_MODEL") or route_model or (DEFAULT_ROUTE_MODEL if on_groq else None),
     )

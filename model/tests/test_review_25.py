@@ -515,8 +515,8 @@ def test_r6_5_one_call_keeps_to_its_deadline(monkeypatch):
     llm, calls, _ = _client([TimeoutError("slow"), "ok"])
     with pytest.raises(LLMError, match="deadline"):
         llm.complete("s", "u", purpose="route")                # route: 10 s in contract 06
-    # a model with another one after it gets at most ATTEMPT_SHARE of the time left (review of 30ac1d1)
-    assert len(calls) == 1 and calls[0][1] == 6.0
+    # a model with another one after it leaves RESERVE_S for it: 10 - 3 = 7 s (reviews of 30ac1d1 and 85d460f)
+    assert len(calls) == 1 and calls[0][1] == 7.0
 
 
 def test_r6_6_every_model_failing_is_one_llm_error_with_each_reason():
@@ -592,14 +592,15 @@ def test_r10_1_a_slow_primary_leaves_time_for_the_fallback(monkeypatch):
     client = llm_mod.OpenAICompatibleLLM("http://x", "k", "slow", "fast")
     assert client.complete("s", "u", purpose="answer").model == "fast"
     (_, first), (_, second) = timeouts
-    assert first <= llm_mod.ATTEMPT_SHARE * llm_mod.DEADLINE_S["answer"] + 0.01 and second > 0
+    assert first <= llm_mod.DEADLINE_S["answer"] - llm_mod.RESERVE_S["answer"] + 0.01 and second > 0
 
 
 def test_r10_2_the_groq_planner_model_is_used_on_groq_only(monkeypatch):
     from agent.llm import DEFAULT_ROUTE_MODEL, llm_from_env
     monkeypatch.delenv("LLM_ROUTE_MODEL", raising=False)
     monkeypatch.setenv("LLM_BASE_URL", "https://api.portkey.ai/v1")
-    assert llm_from_env(route_model="openai/gpt-oss-20b").route_model is None
+    assert llm_from_env().route_model is None                          # the built-in Groq name: Groq only
+    assert llm_from_env(route_model="openai/gpt-oss-20b").route_model == "openai/gpt-oss-20b"   # explicit: kept
     monkeypatch.delenv("LLM_BASE_URL")
     assert llm_from_env().route_model == DEFAULT_ROUTE_MODEL
     monkeypatch.setenv("LLM_ROUTE_MODEL", "my-model")
@@ -607,10 +608,11 @@ def test_r10_2_the_groq_planner_model_is_used_on_groq_only(monkeypatch):
     assert llm_from_env().route_model == "my-model"
 
 
-def test_r10_4_reranker_is_not_serialised(corpus):
+def test_r10_4_search_and_rerank_have_separate_locks(corpus):
     reranker = object()
     agent = Agent(StubSearch(corpus), StubTools(), FakeLLM({}), reranker)
-    assert agent._parts[2] is reranker and type(agent._parts_lock).__name__ == "RLock"
+    search_lock, rerank_lock = agent._parts_lock
+    assert search_lock is not rerank_lock and agent._parts[2] is reranker
 
 
 def test_r10_5_a_file_error_does_not_fail_the_run(tmp_path, corpus, table_reranker):
@@ -645,3 +647,60 @@ def test_r10_8_status_and_bonus_keep_their_plural_together():
     from agent.validate import stem
     assert stem("status") == stem("statuses") and stem("bonus") == stem("bonuses")
     assert stem("laptops") == stem("laptop") and stem("uses") == stem("use")
+
+
+# --- review of 30ac1d1..85d460f (merged as ffc9a34) and the live demo after it ----------------------------------
+
+def test_r11_1_the_gate_fits_the_minilm_reranker():
+    from agent.config import AgentConfig
+    assert AgentConfig().obs_relevance_min == 0.1          # lowest answerable top score measured: 0.144
+
+
+@pytest.mark.parametrize("question", ["Hi, how are you?", "ok thanks", "thank you very much!", "Thanks, that helps!"])
+def test_r11_2_polite_phrases_together_are_small_talk(question):
+    (decision, _), _ = _route(question, {"route": "CONVERSATIONAL", "standalone_query": "q", "tool": None})
+    assert decision.route == "CONVERSATIONAL"
+
+
+def test_r11_6_a_broken_summary_file_does_not_fail_the_run(tmp_path, corpus, table_reranker):
+    import json
+    import sqlite3
+
+    from agent.eval_store import start_run
+    from tests.test_eval_store import CASES, TABLES, _wait
+    db, out = tmp_path / "o.db", tmp_path / "out"
+    con = sqlite3.connect(db)
+    con.executescript(TABLES)
+    con.close()
+    cases = tmp_path / "e.jsonl"
+    cases.write_text("\n".join(json.dumps(c) for c in CASES), encoding="utf-8")
+    out.mkdir()
+    (out / "eval_summary_A.json").write_text("{not json", encoding="utf-8")     # left by an older or broken run
+    agent = Agent(StubSearch(corpus), StubTools(), FakeLLM({}), table_reranker({}))
+    run_id = start_run(agent, cases, "B", db, lambda q, s, c: NullRecorder(), out_dir=out, pause_s=0)
+    _wait(run_id)
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT status FROM eval_run WHERE run_id = ?", (run_id,)).fetchone() == ("DONE",)
+    con.close()
+
+
+def test_r11_8_short_acronym_plurals_are_plurals():
+    from agent.validate import stem
+    assert stem("kpis") == stem("kpi") and stem("skus") == stem("sku") and stem("status") == stem("statuses")
+
+
+def test_live_current_rate_may_cite_the_current_version_only(corpus):
+    """Live demo, 27 Oct: every conflict answer ended with "The current rate is ₹2,000 per day." and was marked
+    unsupported. The tag now says current="yes" on the newest version; only that version grounds "current"."""
+    from agent.types import AnswerJSON, Claim
+    from agent.validate import check_grounding
+    v2 = dataclasses.replace(corpus["c_v2_perdiem"], current=True)
+    v1 = dataclasses.replace(corpus["c_v1_perdiem"], current=False)
+    evidence = {e.id: e for e in build_evidence([ScoredChunk(v2, 0.9), ScoredChunk(v1, 0.8)], [], [], 6000)}
+    _, user = build_prompt("q", [], list(evidence.values()))
+    assert 'current="yes"' in user and 'current="no"' in user
+    amount = "2,000" if "2,000" in v2.text else "2000"
+    on_v2 = Claim(text=f"The current rate is ₹{amount} per day.", citations=["E1"])
+    on_v1 = Claim(text=f"The current rate is ₹{amount} per day.", citations=["E2"])
+    assert check_grounding(AnswerJSON(answer_markdown="", claims=[on_v2]), evidence)[0] == 1.0
+    assert check_grounding(AnswerJSON(answer_markdown="", claims=[on_v1]), evidence)[0] == 0.0

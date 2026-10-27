@@ -83,7 +83,11 @@ def cited_text(e: Evidence) -> str:
     if e.chunk is None:
         return e.text
     c = e.chunk
-    return f"{c.title} version {c.version} effective {c.effective_date} page {c.page} section {c.section} {e.text}"
+    # the tag says current="yes" for the newest version, so "the current rate is ₹2,000" may cite v2.0 but never
+    # v1.0 (live demo, 27 Oct: every conflict answer ended with that sentence and was marked unsupported)
+    current = " current latest" if getattr(c, "current", None) else ""
+    return (f"{c.title} version {c.version}{current} effective {c.effective_date} page {c.page} section {c.section} "
+            f"{e.text}")
 
 
 def _without_tag_refs(text: str, items: list[Evidence]) -> str:
@@ -153,7 +157,8 @@ def stem(word: str) -> str:
                 break
         else:
             # uses, laptops: a plain plural; status, bonus, basis end in "s" but are singular (review #25)
-            if word.endswith("s") and not word.endswith(("ss", "us", "is")) and len(word) > 3:
+            singular = word.endswith("ss") or (word.endswith(("us", "is")) and len(word) > 4)   # not kpis, skus
+            if word.endswith("s") and not singular and len(word) > 3:
                 word = word[:-1]
     return word[:-1] if word.endswith("e") and len(word) > MIN_STEM else word
 

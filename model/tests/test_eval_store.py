@@ -169,7 +169,7 @@ def test_r9_5_search_and_rerank_take_turns(corpus, table_reranker):
 
     class Watching(StubSearch):
         def vector_search(self, query, k, filters=None):
-            probe = threading.Thread(target=lambda: seen.append(not agent._parts_lock.acquire(blocking=False)))
+            probe = threading.Thread(target=lambda: seen.append(not agent._parts_lock[0].acquire(blocking=False)))
             probe.start()
             probe.join()
             return [Hit("c_sop_laptop", 0.8, 1)]
