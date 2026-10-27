@@ -30,7 +30,9 @@ async def check_qdrant(config: Config) -> str:
 
 def check_llm(config: Config) -> str:
     # A live model check at start-up (contract 06, model_not_found) belongs to the agent's client.
-    return "configured" if config.secrets.portkey_api_key else "not_configured"
+    # The agent reads LLM_API_KEY (Groq directly) or PORTKEY_API_KEY (model/README.md).
+    keys = (config.secrets.llm_api_key, config.secrets.portkey_api_key)
+    return "configured" if any(keys) else "not_configured"
 
 
 def check_ocr(config: Config) -> bool:

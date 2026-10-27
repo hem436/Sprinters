@@ -54,6 +54,7 @@ class Secrets(BaseModel):
     admin_user: str = "admin"
     admin_password: str | None = None
     portkey_api_key: str | None = None
+    llm_api_key: str | None = None
     gemini_api_key: str | None = None
 
     @classmethod
@@ -62,6 +63,7 @@ class Secrets(BaseModel):
             admin_user=os.getenv("ADMIN_USER") or "admin",
             admin_password=os.getenv("ADMIN_PASSWORD") or None,
             portkey_api_key=os.getenv("PORTKEY_API_KEY") or None,
+            llm_api_key=os.getenv("LLM_API_KEY") or None,
             gemini_api_key=os.getenv("GEMINI_API_KEY") or None,
         )
 
