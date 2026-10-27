@@ -164,8 +164,9 @@ def _generate(state: AgentState, llm: LLMPort) -> dict:
 
 
 def _without_evidence(tool_results: list[ToolResult], no_tool: bool) -> dict:
-    """04 G1 and 13 section 5: which fixed text to show when nothing usable was found."""
-    if no_tool:
+    """04 G1 and 13 section 5: which fixed text to show when nothing usable was found. The registry can also answer
+    NO_TOOL itself; that is "no approved tool fits", not a tool that is down (review #25, fourth)."""
+    if no_tool or any(t.status == "NO_TOOL" for t in tool_results):
         return {"text": NO_TOOL_TEXT, "fallback": True}
     if tool_results:            # the tool ran and failed (timeout, database error, bad arguments)
         return {"text": TOOL_UNAVAILABLE_TEXT, "fallback": False}

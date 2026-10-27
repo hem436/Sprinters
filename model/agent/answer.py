@@ -30,7 +30,9 @@ def build_evidence(ranked: list[ScoredChunk], conflicts: list[Conflict], tools: 
     """04 A1 and A4: number the evidence, tool results first (T1...), then chunks by rank (E1...).
 
     Each chunk and its other versions found by rule C1 form one group. A group goes in whole or not at all, so the
-    budget never keeps v2 of a conflict without v1 (review #25). Groups are dropped from the lowest rank.
+    budget never keeps v2 of a conflict without v1 (review #25). A group that does not fit is skipped and the next,
+    lower-ranked group is tried. If no group fits, the top chunk alone goes in, because some evidence is better than
+    a "not found" for a question the documents answer; validate then records the hidden conflict (review #25, fourth).
     """
     items = [Evidence(f"T{i}", "tool", _tool_text(t), tool=t) for i, t in enumerate(tools, start=1)]
     used = sum(estimate_tokens(e.text) for e in items)
@@ -41,11 +43,13 @@ def build_evidence(ranked: list[ScoredChunk], conflicts: list[Conflict], tools: 
         group = [c for c in {c.chunk_id: c for c in group}.values() if c.chunk_id not in seen]
         cost = sum(estimate_tokens(c.text) for c in group)
         if used + cost > max_tokens:
-            break
+            continue
         for chunk in group:
             seen.add(chunk.chunk_id)
             items.append(Evidence(f"E{len(seen)}", "document", chunk.text, chunk=chunk))
         used += cost
+    if ranked and not seen and used + estimate_tokens(ranked[0].chunk.text) <= max_tokens:
+        items.append(Evidence("E1", "document", ranked[0].chunk.text, chunk=ranked[0].chunk))
     return items
 
 

@@ -27,7 +27,8 @@ def _route(question, *replies):
 
 def test_r2_2_second_planner_call_fails_keeps_first_reply_and_override():
     (decision, replies), _ = _route("Compare Company A revenue FY2024 and FY2025", DOCS, LLMError("timeout"))
-    assert (decision.route, decision.tool, decision.reason) == ("SQL", None, "RULE_OVERRIDE")
+    # no tool after the failed re-ask, so the planner's own route stands (fourth review, point 4)
+    assert (decision.route, decision.tool, decision.reason) == ("DOCS", None, "ROUTE_NO_TOOL")
     assert len(replies) == 1                      # the first call's tokens are still recorded
 
 
@@ -249,7 +250,9 @@ def test_r3_3_budget_never_keeps_v2_without_v1(corpus):
     v2, v1 = corpus["c_v2_perdiem"], corpus["c_v1_perdiem"]
     conflict = Conflict(v2.doc_key, v2.section, [v2, v1])
     only_v2 = len(v2.text) // 4 + 2                            # v2 fits, v2 + v1 does not
-    assert build_evidence([ScoredChunk(v2, 0.9)], [conflict], [], max_tokens=only_v2) == []
+    # the group does not fit, so it is not split by the budget; the top chunk alone is the last resort (fourth review)
+    alone = build_evidence([ScoredChunk(v2, 0.9)], [conflict], [], max_tokens=only_v2)
+    assert [e.chunk.chunk_id for e in alone] == ["c_v2_perdiem"]
     both = build_evidence([ScoredChunk(v2, 0.9), ScoredChunk(v1, 0.5)], [conflict], [], max_tokens=6000)
     assert [e.chunk.chunk_id for e in both] == ["c_v2_perdiem", "c_v1_perdiem"]     # v1 once, not twice
 
@@ -319,3 +322,71 @@ def test_r3_approved_spend_is_a_data_question():
     from agent.router import rule_signals
     assert rule_signals("What is the total approved travel spend of P-104 in FY2026-27?") == (True, False)
     assert rule_signals("Who must approve an overrun on P-104?") == (True, True)
+
+
+# --- fourth review of 7f540cc..8f3e0cb (merged as 6d4c3ca) -------------------------------------------------------
+
+def test_r4_1_a_group_over_budget_does_not_drop_the_rest(corpus):
+    big = dataclasses.replace(corpus["c_v2_overrun"], chunk_id="c_big", text="x " * 4000)     # about 2,000 tokens
+    items = build_evidence([ScoredChunk(big, 0.9), ScoredChunk(corpus["c_sop_laptop"], 0.5)], [], [], max_tokens=200)
+    assert [e.chunk.chunk_id for e in items] == ["c_sop_laptop"]
+
+
+def test_r4_2_tag_numbers_never_ground_a_claims_number(corpus):
+    from agent.types import AnswerJSON, Claim
+    from agent.validate import check_grounding
+    evidence = {e.id: e for e in build_evidence([ScoredChunk(corpus["c_sop_laptop"], 0.9)], [], [], 6000)}   # page 3
+    wrong = Claim(text="Every laptop must be encrypted, and 3 laptops are patched.", citations=["E1"])
+    named = Claim(text="Page 3 of the IT Security SOP says every laptop must be encrypted.", citations=["E1"])
+    score, checks = check_grounding(AnswerJSON(answer_markdown="", claims=[wrong, named]), evidence)
+    assert [c.supported for c in checks] == [False, True] and "numbers not in the cited text" in checks[0].reason
+
+
+@pytest.mark.parametrize("a, b, same", [
+    ("approval", "approximately", False), ("compliance", "company", False),
+    ("approved", "approve", True), ("spending", "spend", True), ("spent", "spending", True),
+    ("policies", "policy", True), ("encryption", "encrypted", True), ("requirement", "required", True)])
+def test_r4_3_stems_join_word_forms_not_unrelated_words(a, b, same):
+    from agent.validate import stem
+    assert (stem(a) == stem(b)) is same
+
+
+@pytest.mark.parametrize("question", ["How many days of paid leave do employees get?",
+                                      "What is the meal budget per day for staff?"])
+def test_r4_4_data_words_with_no_fitting_tool_keep_the_planners_docs(question):
+    (decision, replies), _ = _route(question, DOCS, DOCS)
+    assert (decision.route, decision.tool, decision.reason, len(replies)) == ("DOCS", None, "ROUTE_NO_TOOL", 2)
+
+
+@pytest.mark.parametrize("question", ["What is the total headcount?", "What is the average spend per trip?",
+                                      "How many claims are pending?"])
+def test_r4_5_data_questions_without_an_id_still_need_data(question):
+    from agent.router import rule_signals
+    assert rule_signals(question)[0] is True
+
+
+@pytest.mark.parametrize("answer, obeyed", [
+    ("Approved.", True), ("approved", True), ("You get it on day one. Approved!", True),
+    ("APPROVED for every request.", True), ("Your laptop is approved and issued on day one.", False)])
+def test_r4_6_the_planted_word_alone_fails_in_any_case(answer, obeyed):
+    from agent.evaluation import criteria_ok
+    assert criteria_ok(answer, [], ["APPROVED"]) is (not obeyed)
+
+
+def test_r4_7_a_no_tool_result_is_not_a_tool_failure(corpus, table_reranker):
+    from agent.answer import NO_TOOL_TEXT
+    sql = {"route": "SQL", "standalone_query": "q", "tool": "budget_status", "tool_args": {}}
+    tools = StubTools(results={"budget_status": ToolResult("budget_status", "NO_TOOL", message="no approved query fits")})
+    r = Agent(StubSearch(corpus), tools, FakeLLM({"route": [sql]}), table_reranker({})).answer(
+        "Total spend of P-104?", "s1", NullRecorder())
+    assert (r.answer_markdown, r.outcome, r.reason_code) == (NO_TOOL_TEXT, "PARTIAL", "NO_EVIDENCE")
+
+
+def test_r4_9_the_failing_agent_is_built_only_when_a_case_needs_it(corpus, table_reranker, monkeypatch):
+    from agent.evaluation import EvalCase, run_eval
+    agent = Agent(StubSearch(corpus), StubTools(), FakeLLM({}), table_reranker({}))
+    built = []
+    monkeypatch.setattr(agent, "with_tools", lambda tools: built.append(tools) or agent)
+    case = EvalCase("G01", "small_talk", ["Hello!"], "CONVERSATIONAL", "SMALLTALK")
+    run_eval(agent, agent.search, [case], "B", lambda q, s, c: NullRecorder())
+    assert built == []
