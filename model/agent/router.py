@@ -31,9 +31,12 @@ _DOC_WORDS = re.compile(r"\b(policy|policies|rule|procedure|sop|guideline|says?|
                         r"why|explain|reason|outlook|risk|require\w*)\b", re.I)
 _GREETING = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|good (morning|afternoon|evening))\b[\s!.?]*$", re.I)
 # R1: the only questions the planner may call small talk. "Who is the CEO of Arka Fintech?" is a question about the
-# company: it must search the documents and say "could not find", not greet (FR-07, FR-10).
+# company: it must search the documents and say "could not find", not greet (FR-07, FR-10). The whole message must
+# be the phrase, with at most a fixed polite tail: "thanks, what about Q2?" and "help with leave rules" are
+# questions (review #25).
 _SMALLTALK = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|ok(ay)?|bye|goodbye|good (morning|afternoon|evening)|"
-                        r"who are you|what can you do|how are you|what do you do|help)\b[\s\w,!.?']{0,20}$", re.I)
+                        r"who are you|what can you do|how are you|what do you do|help)"
+                        r"([\s,]+(there|so much|a lot|again|that helps|got it|great))?[\s!.?]*$", re.I)
 
 
 def rule_signals(question: str) -> tuple[bool, bool]:

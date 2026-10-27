@@ -116,9 +116,12 @@ def _run(agent, cases, config_id, db_path, new_recorder, out_dir, run_id, pause_
                 time.sleep(pause_s)
 
         run = run_eval(agent, agent.search, cases, config_id, new_recorder, on_case=store_case, run_id=run_id)
-        _set_status(db_path, run_id, "DONE", run["summary"])
         if out_dir is not None:
-            _write_files(out_dir, config_id, run, [c.id for c in cases])
+            try:        # the files are a copy; the stored rows are the result, so a file error never fails the run
+                _write_files(out_dir, config_id, run, [c.id for c in cases])
+            except OSError:
+                log.warning("eval run %s: the contract 07 files were not written to %s", run_id, out_dir, exc_info=True)
+        _set_status(db_path, run_id, "DONE", run["summary"])
         log.info("eval run %s done: %s of %s passed", run_id, run["summary"]["passed"], run["summary"]["cases_total"])
     except Exception:
         log.exception("eval run %s failed", run_id)

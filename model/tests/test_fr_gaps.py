@@ -46,7 +46,7 @@ def test_fr08_citation_markers_become_plain(written, shown):
 
 
 def test_tool_sql_goes_to_the_recorder_and_the_response(corpus, table_reranker):
-    """The registry's SQL trail is passed on unchanged, so the store and the chat can show it."""
+    """The registry's SQL trail goes to the store for the admin drill-down, not to the user's response."""
     from agent.types import ToolResult
     sql = [{"sql": "SELECT project_id FROM v_budget_status WHERE project_id = :project_id",
             "params": {"project_id": "P-104"}}]
@@ -57,7 +57,7 @@ def test_tool_sql_goes_to_the_recorder_and_the_response(corpus, table_reranker):
     recorder = NullRecorder()
     r = Agent(StubSearch(corpus), StubTools(results={"budget_status": p104}), llm, table_reranker({})).answer(
         "Is P-104 over its travel budget?", "s1", recorder)
-    assert recorder.tool_calls[0]["sql"] == sql and r.tool_results[0]["sql"] == sql
+    assert recorder.tool_calls[0]["sql"] == sql and "sql" not in r.tool_results[0]   # admin drill-down only
 
 
 class SegmentTools(StubTools):

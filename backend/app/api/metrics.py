@@ -7,6 +7,7 @@ GET and POST /eval/runs. Shapes follow web/src/api/types.ts.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -169,10 +170,12 @@ def start_eval_run(req: EvalRunRequest, config: Config = Depends(get_config), ag
 
     from app.observability.recorder import QueryRecorder
 
+    # EVAL_SET and EVAL_OUTPUT_DIR override the config paths (the Docker image sets both, see backend/Dockerfile)
+    cases = Path(os.getenv("EVAL_SET") or config.paths.resolve(config.paths.eval_set))
+    out_dir = Path(os.getenv("EVAL_OUTPUT_DIR") or config.paths.resolve(config.paths.output_dir))
     try:
-        run_id = start_run(agent, config.paths.resolve(config.paths.eval_set), req.config_id, _db(config),
-                           lambda q, s, c: QueryRecorder.start(q, s, c),
-                           out_dir=config.paths.resolve(config.paths.output_dir), case_ids=req.case_ids)
+        run_id = start_run(agent, cases, req.config_id, _db(config), lambda q, s, c: QueryRecorder.start(q, s, c),
+                           out_dir=out_dir, case_ids=req.case_ids)
     except RunInProgress as exc:
         raise ApiError(409, "RUN_IN_PROGRESS", str(exc)) from exc
     except UnknownCases as exc:           # the request named a case the set does not have

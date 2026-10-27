@@ -25,7 +25,11 @@ CALL_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, Timeou
 MAX_RATE_WAIT_S = 6.0
 # Contract 06: AI-4 (route) 10 s, AI-5 (answer) 30 s, for all models and waits of one call together (review #25)
 DEADLINE_S = {"route": 10.0, "answer": 30.0, "repair": 30.0}
-DEFAULT_ROUTE_MODEL = "openai/gpt-oss-20b"      # backend/config/app.yaml llm.route_model
+# While other models are left to try, one model may use at most this share of the time left, so a slow primary
+# never uses up the whole deadline and the fallback always gets its turn (review #25: 30 s answer = 30 s request).
+ATTEMPT_SHARE = 0.6
+DEFAULT_ROUTE_MODEL = "openai/gpt-oss-20b"      # backend/config/app.yaml llm.route_model; used on Groq only
+GROQ_URL = "https://api.groq.com/openai/v1"
 
 
 class LLMError(RuntimeError):
@@ -58,14 +62,16 @@ class OpenAICompatibleLLM:
         so a short 429 is waited out once and anything else moves on to the next model. The whole call keeps to the
         deadline of contract 06 (DEADLINE_S); what is left of it is also each request's timeout."""
         errors, deadline = [], time.monotonic() + DEADLINE_S.get(purpose, self.timeout_s)
-        for model in self.order(purpose):
+        models = self.order(purpose)
+        for n, model in enumerate(models):
             for attempt in (1, 2):
                 left = deadline - time.monotonic()
                 if left <= 0:
                     errors.append(f"{model}: not tried, the {purpose} deadline passed")
                     raise LLMError("; ".join(errors))
+                share = left if n == len(models) - 1 else left * ATTEMPT_SHARE     # leave room for the next model
                 try:
-                    return self._call(model, system, user, json_mode, timeout_s=min(self.timeout_s, left))
+                    return self._call(model, system, user, json_mode, timeout_s=min(self.timeout_s, share))
                 except urllib.error.HTTPError as error:            # before CALL_ERRORS: it is also a URLError
                     body = _error_body(error)
                     wait = _retry_after(error, body)
@@ -140,20 +146,24 @@ def _retry_after(error: urllib.error.HTTPError, body: str) -> float | None:
 def llm_from_env(route_model: str | None = None) -> OpenAICompatibleLLM:
     """Build the client from environment variables (names in model/.env.example). Keys never live in code.
 
-    The planner model: LLM_ROUTE_MODEL if set, else the caller's value (the back end passes app.yaml llm.route_model),
-    else DEFAULT_ROUTE_MODEL (review #25)."""
+    The planner model: LLM_ROUTE_MODEL if set. Otherwise, on Groq only, the caller's value (the back end passes
+    app.yaml llm.route_model) or DEFAULT_ROUTE_MODEL. Another provider may not serve that Groq model name, and a
+    planner that always starts on a missing model fails every plan (review #25), so there the planner uses the
+    normal model list."""
+    base_url = os.getenv("LLM_BASE_URL", GROQ_URL)
+    on_groq = base_url.rstrip("/") == GROQ_URL
     headers = {}
     if os.getenv("PORTKEY_API_KEY"):
         headers["x-portkey-api-key"] = os.environ["PORTKEY_API_KEY"]
         if os.getenv("PORTKEY_CONFIG_SLUG"):
             headers["x-portkey-config"] = os.environ["PORTKEY_CONFIG_SLUG"]
     return OpenAICompatibleLLM(
-        base_url=os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1"),
+        base_url=base_url,
         api_key=os.getenv("LLM_API_KEY", ""),
         model=os.getenv("LLM_MODEL", "openai/gpt-oss-120b"),
         fallback_model=os.getenv("LLM_FALLBACK_MODEL", "openai/gpt-oss-20b"),
         extra_headers=headers,
         # comma list, for example "qwen/qwen3.8-27b,openai/gpt-oss-safeguard-20b": more models, more per-minute room
         more_models=tuple(m.strip() for m in os.getenv("LLM_MORE_MODELS", "").split(",") if m.strip()),
-        route_model=os.getenv("LLM_ROUTE_MODEL") or route_model or DEFAULT_ROUTE_MODEL,
+        route_model=os.getenv("LLM_ROUTE_MODEL") or ((route_model or DEFAULT_ROUTE_MODEL) if on_groq else None),
     )

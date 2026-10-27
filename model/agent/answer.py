@@ -43,7 +43,8 @@ def build_evidence(ranked: list[ScoredChunk], conflicts: list[Conflict], tools: 
         if not group:
             continue
         if used + sum(estimate_tokens(c.text) for c in group) > max_tokens:
-            group = group[:1]                    # the chunk alone, without its other versions
+            # the ranked chunk alone, without its other versions; never a version in its place (review #25)
+            group = [c for c in group if c.chunk_id == scored.chunk.chunk_id]
         cost = sum(estimate_tokens(c.text) for c in group)
         if used + cost > max_tokens:
             continue
