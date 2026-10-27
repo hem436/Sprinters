@@ -35,9 +35,11 @@ describe('every route renders on mock data', () => {
     expect((await screen.findAllByText(text, {}, { timeout: 3000 })).length).toBeGreaterThan(0)
   })
 
-  it('opens admin pages directly when no admin password is set up', async () => {
+  it('opens admin pages directly when no admin password is set up, with no Log out', async () => {
     renderWithProviders(<App />, '/dashboard')
     expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to chat' })).toBeInTheDocument()
   })
 })
 

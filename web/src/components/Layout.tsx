@@ -82,20 +82,22 @@ export function Layout() {
           <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
             <HealthBadge />
             {loginEnabled && user ? <span className="text-xs text-slate-500 dark:text-slate-400">{user}</span> : null}
-            <button
-              type="button"
-              onClick={() => {
-                // Without a login this leaves the admin view; with one it also clears the saved password.
-                logout()
-                navigate('/chat')
-              }}
-              className={`${ghost} gap-1.5`}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-              </svg>
-              Log out
-            </button>
+            {/* Only with a password set up: without one there is no login to end, and Back to chat is enough. */}
+            {loginEnabled ? (
+              <button
+                type="button"
+                onClick={() => {
+                  logout()
+                  navigate('/chat')
+                }}
+                className={`${ghost} gap-1.5`}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+                </svg>
+                Log out
+              </button>
+            ) : null}
           </div>
         ) : null}
       </header>
