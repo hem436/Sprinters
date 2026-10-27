@@ -2,7 +2,7 @@
      After freezing, change only through the design-change skill: an entry in CHANGES.md and a version bump. -->
 # 11 Observability, cost and evaluation
 
-Version: 1.0 · Status: DRAFT · Owner: P3 · Case section(s): 5 (FR-11, FR-12), 8, 9, 10
+Version: 1.0 · Status: DRAFT · Owners: Sinngam (P3) sections 2 to 5 (store, recorder, cost, outcome storage); Arka (P2) sections 6 to 8 (online checks, evaluation, A vs B); Hemant (P4) builds section 9 · Case section(s): 5 (FR-11, FR-12), 8, 9, 10
 
 ## 1. Principle
 
@@ -19,13 +19,13 @@ reset on every restart; the case needs history and drill-down).
 
 | Table | One row per | Key columns |
 |---|---|---|
-| `query_event` | query | `query_id` (ULID), `ts`, `session_id`, `app_version`, `config_id`, `question_masked`, `normalized_query`, `route` (DOCS, SQL, BOTH, CONVERSATIONAL, BLOCKED), `answer`, `outcome` (SUCCESS, PARTIAL, FAILED), `reason_code`, `confidence` (HIGH, MEDIUM, LOW), `retrieval_relevant` (bool), `grounding_score` (0 to 1), `citations_valid` / `citations_total`, `safety_flags` (JSON list), `latency_ms_total`, `tokens_in`, `tokens_out`, `tokens_cached`, `cost_usd` (TEXT, Decimal), `cost_estimated` (bool), `error_category`, `correlation_id` |
+| `query_event` | query | `query_id` (ULID), `ts`, `session_id`, `app_version`, `config_id`, `question_masked`, `normalized_query`, `route` (DOCS, SQL, BOTH, CONVERSATIONAL, BLOCKED), `answer`, `outcome` (SUCCESS, PARTIAL, FAILED), `reason_code`, `confidence` (HIGH, MEDIUM, LOW), `retrieval_relevant` (bool), `grounding_score` (0 to 1), `citations_valid` / `citations_total`, `safety_flags` (JSON list), `latency_ms_total`, `tokens_in`, `tokens_out`, `tokens_cached`, `cost_usd` (TEXT, Decimal), `cost_estimated` (bool), `http_status`, `grounding_detail` (JSON: each claim, its citations, supported or not), `error_category`, `correlation_id` |
 | `query_stage` | stage of a query | `query_id`, `stage` (guard, plan, retrieve_vector, retrieve_bm25, fuse, rerank, tool, generate, validate), `status` (OK, SKIPPED, ERROR, TIMEOUT), `latency_ms`, `retries`, `detail` (JSON) |
 | `retrieval_hit` | candidate chunk per list | `query_id`, `list` (vector, bm25, fused, reranked), `rank`, `chunk_id`, `document_id`, `page`, `score` |
 | `llm_call` | model call | `query_id` or `document_id`, `purpose` (route, answer, judge, ocr, embed), `model`, `prompt_version`, `tokens_in`, `tokens_out`, `tokens_cached`, `cache_hit`, `latency_ms`, `cost_usd`, `usage_source` (PROVIDER, ESTIMATED) |
-| `tool_call` | SQL tool call | `query_id`, `tool`, `args_sanitized` (JSON), `status`, `row_count`, `latency_ms`, `error_category` |
+| `tool_call` | SQL tool call | `query_id`, `tool`, `args_sanitized` (JSON), `status`, `row_count`, `result_summary` (the tool's one-line summary), `latency_ms`, `error_category` |
 | `citation` | cited item | `query_id`, `citation_id`, `chunk_id` or `tool_call_id`, `valid` (bool), `reason` |
-| `context_turn` | prior turn sent to the model | `query_id`, `turn_index`, `role`, `chars` |
+| `context_turn` | prior turn sent to the model | `query_id`, `turn_index`, `role`, `text_masked`, `chars` |
 | `feedback` | feedback | `query_id`, `helpful` (bool), `comment`, `reviewer_comment`, `ts` |
 | `model_price` | model | `model`, `usd_per_1m_in`, `usd_per_1m_out`, `usd_per_1m_cached`, `source_url`, `checked_on` |
 | `eval_run`, `eval_result` | run / case per run | section 7 |
@@ -43,7 +43,7 @@ rec.citations(validated)                                      # list of {citatio
 rec.finish(answer, route, grounding_score)                    # applies the outcome rules, writes all rows
 ```
 
-Rules: the recorder never raises into the answer path (a failed write is logged and dropped, as the existing
+Rules: the recorder never raises into the answer path (a failed write is logged, dropped and **counted** in a `dropped_events` counter that the dashboard shows, so missing records are visible; as the existing
 `record_query` does). Writes happen once in `finish()`, in one transaction.
 
 ## 4. Tokens and cost
@@ -81,7 +81,7 @@ Rules: the recorder never raises into the answer path (a failed write is logged 
 
 | Check | How | Feeds |
 |---|---|---|
-| Retrieval relevant | top reranked score ≥ `obs.relevance_min` (0.3); a proxy, because live questions have no ground truth | `retrieval_relevant`, Retrieval success KPI |
+| Retrieval relevant | top reranked score ≥ `obs.relevance_min` (0.3), or for config A the top cosine score ≥ `obs.relevance_min_vector` (0.6); a proxy, because live questions have no ground truth | `retrieval_relevant`, Retrieval success KPI |
 | Citation valid | every citation id in the answer JSON is in this query's evidence set (reranked chunks or tool results) | `citation`, Citation support KPI |
 | Grounding score | per claim: every number in the claim appears in its cited text (exact string or the same value after parsing) and at least 50 % of its content words appear there; score = supported claims ÷ claims | `grounding_score`, Grounding rate KPI |
 | Safety | guardrail result, `injection_suspect` chunks used, PII in the question | `safety_flags`, Safety events KPI |
@@ -116,6 +116,7 @@ they cost tokens and the existing setup is limited by Groq's rate limits.
 | Tool failure (runner sets `tools.simulate_failure`) | 2 | TOOL_ERROR_HANDLED |
 | Regression question | 3 (taken from the others) | same as source |
 | Handwritten / scanned source | 2 | ANSWER with an OCR page cited |
+| Financial tables (contract 14) | 4: two-report comparison, restated figure, crore against million, metric not in the reports | ANSWER route SQL; FALLBACK for the missing metric |
 
 **Measures per run** (`evals/run_eval.py --config A|B`, writes `eval_run` and `eval_result` and the CSVs in contract 07):
 
@@ -123,7 +124,7 @@ they cost tokens and the existing setup is limited by Groq's rate limits.
 |---|---|
 | hit@5 | expected (doc_key, version, page) present in the top 5 reranked chunks; for cases with evidence |
 | recall@5 | expected evidence items found in the top 5 ÷ expected items |
-| MRR | mean of 1 ÷ rank of the first expected item (0 if absent from top 10) |
+| MRR@5 | mean of 1 ÷ rank of the first expected item in the final top 5 (0 if absent), the same list as hit@5 |
 | Route accuracy | `route` equals `expected_route` |
 | Behaviour match | outcome and reason code match `expected_behavior` (for example FALLBACK means PARTIAL + NO_EVIDENCE) |
 | Answer criteria | every `answer_must_include` string present and no `answer_must_not_include` string |

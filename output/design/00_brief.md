@@ -100,6 +100,7 @@ flowchart TB
 | SHOULD | FR-09 conflicts between document versions surfaced | retrieval owner | yes |
 | SHOULD | FR-11 helpful / not-helpful feedback with comment | front end | yes |
 | SHOULD | Handwritten notes and phone photos (contract 10) | extraction owner | yes |
+| SHOULD | Financial tables stored as facts for exact comparisons across reports (contract 14) | extraction + agent owners | yes |
 | MAY | Two-column layout reading order; text-to-SQL beyond the approved templates; RAGAS judge on every query | any | if time |
 | OUT (case 4.2) | Training or fine-tuning a model; enterprise identity and full authorisation; real-time connectors; confidential or personal data; voice; a full computer-vision pipeline | none | no |
 
