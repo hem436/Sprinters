@@ -64,7 +64,9 @@ const travelV2: Citation = {
   page: 7,
   section: '4.2 Per diem',
   method: 'text+tables',
-  url: '/admin/documents/doc_7f3a/pages/7',
+  url: '/documents/doc_7f3a/pages/7',
+  current: true,
+  snippet: 'Daily meal allowance by city: Mumbai ₹2,000, Delhi ₹1,800, Bengaluru ₹1,800. Other cities ₹1,200.',
 }
 const travelV1: Citation = {
   id: 'E2',
@@ -74,7 +76,9 @@ const travelV1: Citation = {
   page: 6,
   section: '4.2 Per diem',
   method: 'ocr',
-  url: '/admin/documents/doc_19c0/pages/6',
+  url: '/documents/doc_19c0/pages/6',
+  current: false,
+  snippet: 'The daily meal allowance is ₹1,500 for all metro cities and ₹1,000 for other cities.',
 }
 
 const hit = (rank: number, chunk_id: string, doc: string, page: number, score: number, version?: string): RankedHit => ({
@@ -121,7 +125,7 @@ const SPECS: Spec[] = [
     outcome: 'SUCCESS',
     reason: 'OK',
     citations: [
-      { ...travelV2, section: '6.1 Budget overruns', page: 11, url: '/admin/documents/doc_7f3a/pages/11' },
+      { ...travelV2, section: '6.1 Budget overruns', page: 11, url: '/documents/doc_7f3a/pages/11', snippet: 'Spend above 100 % of a category budget needs written approval from the department head before new claims are paid.' },
       { id: 'T1', kind: 'tool', tool: 'budget_status', args: { project_id: 'P-104', fiscal_year: 'FY2026-27', category: 'TRAVEL' }, row_count: 1 },
     ],
     toolResults: [
@@ -239,7 +243,7 @@ const SPECS: Spec[] = [
     outcome: 'SUCCESS',
     reason: 'OK',
     citations: [
-      { id: 'E1', kind: 'document', title: 'IT Security SOP', version: '3.1', page: 4, section: 'POL-HR-014 Laptops', method: 'text', url: '/admin/documents/doc_51aa/pages/4' },
+      { id: 'E1', kind: 'document', title: 'IT Security SOP', version: '3.1', page: 4, section: 'POL-HR-014 Laptops', method: 'text', url: '/documents/doc_51aa/pages/4', current: true, snippet: 'Every company laptop must have full-disk encryption turned on. Security patches must be installed within 30 days of release. A laptop that misses a patch for more than 30 days is blocked from the network until IT updates it.' },
     ],
     hits: [hit(1, 'c_5101', 'it-security-sop', 4, 0.92, '3.1'), hit(2, 'c_5102', 'it-security-sop', 5, 0.61, '3.1'), hit(3, 'c_0c41', 'onboarding-faq', 3, 0.22)],
     claims: [
@@ -305,7 +309,7 @@ const SPECS: Spec[] = [
     outcome: 'SUCCESS',
     reason: 'OK',
     citations: [
-      { id: 'E1', kind: 'document', title: 'Vendor Onboarding Note', version: '1.0', page: 2, section: '2 Approvals', method: 'ocr', url: '/admin/documents/doc_88d2/pages/2' },
+      { id: 'E1', kind: 'document', title: 'Vendor Onboarding Note', version: '1.0', page: 2, section: '2 Approvals', method: 'ocr', url: '/documents/doc_88d2/pages/2', current: true, snippet: 'A new vendor needs two approvals: the department head and the procurement team. Procurement checks the tax registration and bank details before the first purchase order.' },
     ],
     hits: [hit(1, 'c_8801', 'vendor-note', 2, 0.79, '1.0'), hit(2, 'c_8802', 'vendor-note', 3, 0.55, '1.0')],
     claims: [
@@ -326,7 +330,7 @@ const SPECS: Spec[] = [
     outcome: 'SUCCESS',
     reason: 'OK',
     citations: [
-      { id: 'E1', kind: 'document', title: 'Employee Onboarding FAQ', version: '1.2', page: 3, section: 'Leave', method: 'text', url: '/admin/documents/doc_0c4e/pages/3' },
+      { id: 'E1', kind: 'document', title: 'Employee Onboarding FAQ', version: '1.2', page: 3, section: 'Leave', method: 'text', url: '/documents/doc_0c4e/pages/3', current: true, snippet: 'A full-time employee gets 24 days of paid annual leave each calendar year. Up to 8 unused days carry over to the next year.' },
     ],
     hits: [hit(1, 'c_0c41', 'onboarding-faq', 3, 0.88, '1.2'), hit(2, 'c_0c42', 'onboarding-faq', 4, 0.47, '1.2')],
     claims: [
@@ -345,7 +349,7 @@ const SPECS: Spec[] = [
     answer: 'The hotel limit for metro cities is ₹6,000 per night [E1]. Room upgrades are allowed for grade G5 and above.',
     outcome: 'PARTIAL',
     reason: 'UNSUPPORTED_CLAIMS',
-    citations: [{ ...travelV2, page: 8, section: '4.3 Accommodation', url: '/admin/documents/doc_7f3a/pages/8' }],
+    citations: [{ ...travelV2, page: 8, section: '4.3 Accommodation', url: '/documents/doc_7f3a/pages/8', snippet: 'The hotel limit for metro cities is ₹6,000 per night. For other cities the limit is ₹4,000 per night.' }],
     hits: [hit(1, 'c_ab13', 'travel-policy', 8, 0.74, '2.0'), hit(2, 'c_ab12', 'travel-policy', 7, 0.5, '2.0')],
     claims: [
       { text: 'hotel limit for metro cities is ₹6,000 per night', supported: true },

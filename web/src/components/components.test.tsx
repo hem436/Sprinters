@@ -56,22 +56,29 @@ describe('OutcomeBadge', () => {
 })
 
 describe('FeedbackBar', () => {
-  it('posts helpful feedback with a comment', async () => {
+  it('saves helpful feedback with one click', async () => {
     const spy = vi.spyOn(api, 'feedback').mockResolvedValue()
     renderWithProviders(<FeedbackBar queryId="Q1" />)
-    await userEvent.click(screen.getByRole('button', { name: /^👍 Helpful/ }))
-    await userEvent.type(screen.getByLabelText('Feedback comment'), 'Clear answer')
-    await userEvent.click(screen.getByRole('button', { name: 'Send feedback' }))
-    expect(spy).toHaveBeenCalledWith({ query_id: 'Q1', helpful: true, comment: 'Clear answer' })
+    await userEvent.click(screen.getByRole('button', { name: 'Helpful' }))
+    expect(spy).toHaveBeenCalledWith({ query_id: 'Q1', helpful: true, comment: undefined })
     expect(await screen.findByText(/feedback is saved/)).toBeInTheDocument()
+    spy.mockRestore()
+  })
+
+  it('asks for an optional comment on "Not helpful"', async () => {
+    const spy = vi.spyOn(api, 'feedback').mockResolvedValue()
+    renderWithProviders(<FeedbackBar queryId="Q1" />)
+    await userEvent.click(screen.getByRole('button', { name: 'Not helpful' }))
+    await userEvent.type(screen.getByLabelText('Feedback comment'), 'Missed Delhi')
+    await userEvent.click(screen.getByRole('button', { name: 'Send feedback' }))
+    expect(spy).toHaveBeenCalledWith({ query_id: 'Q1', helpful: false, comment: 'Missed Delhi' })
     spy.mockRestore()
   })
 
   it('handles 409 FEEDBACK_EXISTS', async () => {
     const spy = vi.spyOn(api, 'feedback').mockRejectedValue(new ApiError(409, { code: 'FEEDBACK_EXISTS', message: 'exists' }))
     renderWithProviders(<FeedbackBar queryId="Q1" />)
-    await userEvent.click(screen.getByRole('button', { name: /Not helpful/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'Send feedback' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Helpful' }))
     expect(await screen.findByText(/already saved/)).toBeInTheDocument()
     spy.mockRestore()
   })

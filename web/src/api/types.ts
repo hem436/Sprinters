@@ -46,6 +46,10 @@ export interface DocumentCitation {
   section?: string
   method: string
   url: string
+  /** Proposed addition to contract 05: the cited passage, so the chat can show it without an admin call. */
+  snippet?: string
+  /** Proposed addition to contract 05: true when this version is the current one of its doc_key. */
+  current?: boolean
 }
 
 export interface ToolCitation {

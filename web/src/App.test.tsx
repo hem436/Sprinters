@@ -33,22 +33,41 @@ describe('every route renders on mock data', () => {
   })
 })
 
+describe('two simple views', () => {
+  it('shows the user nav on the chat and the admin nav on the dashboard', async () => {
+    const { unmount } = renderWithProviders(<App />, '/chat')
+    expect(screen.getByRole('navigation', { name: 'Main' })).toHaveTextContent('Admin')
+    expect(screen.queryByRole('link', { name: 'Evaluation' })).not.toBeInTheDocument()
+    unmount()
+    renderWithProviders(<App />, '/dashboard')
+    const nav = screen.getByRole('navigation', { name: 'Admin' })
+    for (const label of ['Dashboard', 'Documents', 'Evaluation', 'Settings', 'Back to chat']) expect(nav).toHaveTextContent(label)
+  })
+})
+
 describe('chat end to end on mock data', () => {
-  it('asks without streaming and shows citations, badges and feedback', async () => {
+  it('asks without streaming and shows the source in the viewer', async () => {
     renderWithProviders(<App />, '/chat')
-    await userEvent.click(screen.getByRole('button', { name: /^Filters/ }))
+    await userEvent.click(screen.getByRole('tab', { name: /^Filters/ }))
     await userEvent.click(screen.getByLabelText('Stream answer'))
     await userEvent.type(screen.getByLabelText('Question'), 'What does POL-HR-014 say about laptops?{enter}')
-    expect(await screen.findByText(/full-disk encryption/, {}, { timeout: 3000 })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /IT Security SOP/ })).toBeInTheDocument()
-    expect(screen.getByText('HIGH confidence')).toBeInTheDocument()
-    expect(screen.getByText('Was this helpful?')).toBeInTheDocument()
+    expect(await screen.findByText('High confidence', {}, { timeout: 3000 })).toBeInTheDocument()
+    const source = screen.getByRole('button', { name: /IT Security SOP/ })
+    expect(source).toHaveAttribute('aria-pressed', 'true')
+    const viewer = screen.getByRole('complementary', { name: 'Source viewer' })
+    expect(viewer).toHaveTextContent('IT Security SOP')
+    expect(viewer).toHaveTextContent('POL-HR-014 Laptops')
+    expect(viewer).toHaveTextContent(/blocked from the network/)
+    expect(screen.getByRole('button', { name: 'Helpful' })).toBeInTheDocument()
   })
 
-  it('streams an answer token by token', async () => {
+  it('streams an answer and switches the viewer between sources', async () => {
     renderWithProviders(<App />, '/chat')
-    await userEvent.type(screen.getByLabelText('Question'), 'Total travel spend of P-104 in FY2026-27?{enter}')
-    expect(await screen.findByText(/₹4,35,500/, {}, { timeout: 6000 })).toBeInTheDocument()
-    expect(await screen.findByText('SQL', {}, { timeout: 6000 })).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Question'), 'What is the per diem in Mumbai?{enter}')
+    expect(await screen.findByText('Two versions disagree', {}, { timeout: 6000 })).toBeInTheDocument()
+    const viewer = screen.getByRole('complementary', { name: 'Source viewer' })
+    expect(viewer).toHaveTextContent('v2.0 · current')
+    await userEvent.click(screen.getByRole('button', { name: /E2/ }))
+    expect(viewer).toHaveTextContent('v1.0 · older version')
   })
 })

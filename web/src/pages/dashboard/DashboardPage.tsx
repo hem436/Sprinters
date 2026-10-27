@@ -81,10 +81,11 @@ function Dashboard({ m }: { m: NonNullable<Awaited<ReturnType<typeof api.metrics
           tone={safetyTotal ? 'warn' : 'good'}
           detail={
             Object.keys(m.safety_events).length ? (
-              <ul>
+              <ul className="space-y-0.5">
                 {Object.entries(m.safety_events).map(([flag, n]) => (
-                  <li key={flag}>
-                    <code>{flag}</code>: {n}
+                  <li key={flag} className="flex min-w-0 items-baseline justify-between gap-2" title={flag}>
+                    <code className="min-w-0 truncate">{flag}</code>
+                    <span className="tabular-nums">{n}</span>
                   </li>
                 ))}
               </ul>

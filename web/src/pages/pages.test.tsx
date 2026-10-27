@@ -6,6 +6,7 @@ import { FALLBACK_TEXT } from '../api/mock/scenarios'
 import type { QueryResponse } from '../api/types'
 import { renderWithProviders } from '../test/render'
 import { ChatMessage, type Turn } from './chat/ChatMessage'
+import { SourceViewer } from './chat/SourceViewer'
 import { Comparison } from './eval/EvalPage'
 import { DrillDownView } from './queries/QueryDetailPage'
 
@@ -21,20 +22,45 @@ beforeEach(() => {
 })
 
 describe('ChatMessage', () => {
-  it('shows the fixed fallback text, LOW confidence and no invented answer', async () => {
+  it('shows the fixed fallback text and no confidence tag', async () => {
     const r = await ask("What is the CEO's salary?")
     renderWithProviders(<ChatMessage turn={turnOf(r)} onRetry={() => {}} />)
     expect(screen.getByText(FALLBACK_TEXT)).toBeInTheDocument()
-    expect(screen.getByText('LOW confidence')).toBeInTheDocument()
-    expect(screen.getByText('PARTIAL')).toHaveTextContent('NO_EVIDENCE')
+    expect(screen.queryByText(/confidence/)).not.toBeInTheDocument()
   })
 
-  it('shows a conflict between versions with both citations', async () => {
+  it('shows a conflict tag and one source button per version', async () => {
     const r = await ask('What is the per diem in Mumbai?')
     renderWithProviders(<ChatMessage turn={turnOf(r)} onRetry={() => {}} />)
-    expect(screen.getByText('Sources disagree.')).toBeInTheDocument()
-    expect(screen.getByText('Conflict')).toBeInTheDocument()
-    expect(screen.getAllByRole('link', { name: /Travel and Expense Policy/ })).toHaveLength(2)
+    expect(screen.getByText('Two versions disagree')).toBeInTheDocument()
+    expect(screen.getByText('High confidence')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Travel and Expense Policy/ })).toHaveLength(2)
+  })
+
+  it('hides route, outcome and cost from users', async () => {
+    const r = await ask('Total travel spend of P-104 in FY2026-27?')
+    renderWithProviders(<ChatMessage turn={turnOf(r)} onRetry={() => {}} />)
+    expect(screen.queryByText('SQL')).not.toBeInTheDocument()
+    expect(screen.queryByText(/SUCCESS/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/\$0\./)).not.toBeInTheDocument()
+  })
+})
+
+describe('SourceViewer', () => {
+  it('shows the cited passage, version state and page', async () => {
+    const r = await ask('What is the per diem in Mumbai?')
+    renderWithProviders(<SourceViewer citation={r.citations[1]} />)
+    expect(screen.getByText(/₹1,500 for all metro cities/)).toBeInTheDocument()
+    expect(screen.getByText('v1.0 · older version')).toBeInTheDocument()
+    expect(screen.getByText('Page 6')).toBeInTheDocument()
+  })
+
+  it('shows tool rows and arguments for a data source', async () => {
+    const r = await ask('Total travel spend of P-104 in FY2026-27?')
+    renderWithProviders(<SourceViewer citation={r.citations[0]} toolResult={r.tool_results[0]} />)
+    expect(screen.getByText('spend_summary')).toBeInTheDocument()
+    expect(screen.getByText('project_id: P-104')).toBeInTheDocument()
+    expect(screen.getByText('₹4,35,500')).toBeInTheDocument()
   })
 })
 
