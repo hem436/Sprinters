@@ -19,6 +19,7 @@ try:
 except ImportError as missing:                             # backend/ is here but its requirements are not installed
     pytest.skip(f"backend requirements not installed ({missing.name})", allow_module_level=True)
 
+from agent.answer import ANSWER_PROMPT_VERSION          # noqa: E402
 from agent.service import Agent                        # noqa: E402
 from agent.stubs import FakeLLM, StubSearch, StubTools  # noqa: E402
 from agent.types import Hit                             # noqa: E402
@@ -55,7 +56,7 @@ def test_every_query_is_stored_with_its_calls(db, corpus, table_reranker):
     response, stored, calls, tools = _run(db, corpus, table_reranker, "Is P-104 over budget and who approves under the policy?",
                                           {"route": [BOTH], "answer": [ANSWER]})
     assert stored == (response.outcome, response.reason_code, 2)
-    assert calls == [("route", "route-v1"), ("answer", "answer-v1")]
+    assert calls == [("route", "route-v1"), ("answer", ANSWER_PROMPT_VERSION)]
     assert tools[0][:2] == ("budget_status", "OK") and "4,35,500" in tools[0][2]
 
 
@@ -63,7 +64,7 @@ def test_repair_is_stored_as_an_answer_call(db, corpus, table_reranker):
     _, stored, calls, _ = _run(db, corpus, table_reranker, "Is P-104 over budget and who approves under the policy?",
                                {"route": [BOTH], "answer": ["not json"], "repair": [ANSWER]})
     assert stored is not None
-    assert [c[1] for c in calls] == ["route-v1", "answer-v1", "answer-v1-repair"]
+    assert [c[1] for c in calls] == ["route-v1", ANSWER_PROMPT_VERSION, f"{ANSWER_PROMPT_VERSION}-repair"]
 
 
 def test_stored_outcome_equals_the_users_outcome_for_small_talk(db, corpus, table_reranker):

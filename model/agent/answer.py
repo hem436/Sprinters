@@ -10,8 +10,8 @@ from agent.retrieval import Conflict
 from agent.safety import PROMPT_CANARY
 from agent.types import AnswerJSON, Evidence, ScoredChunk, ToolResult, Turn
 
-ANSWER_PROMPT_VERSION = "answer-v1"
-_SYSTEM = (Path(__file__).parent.parent / "prompts" / "answer-v1.txt").read_text(encoding="utf-8")
+ANSWER_PROMPT_VERSION = "answer-v2"   # v2: state the deciding numbers (live run)
+_SYSTEM = (Path(__file__).parent.parent / "prompts" / "answer-v2.txt").read_text(encoding="utf-8")
 
 # 04 G1, 13 section 5: fixed texts, never written by the model
 NO_EVIDENCE_TEXT = "I could not find this in the approved documents or data."
