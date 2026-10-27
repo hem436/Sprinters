@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../../api'
 import { Badge, Card, ErrorBanner, KeyValue, PageHeader, Spinner, StatusBadge, Table } from '../../components/ui'
 import { formatCost, formatMs, formatTokens } from '../../lib/format'
+import { ocrTokens } from '../../lib/ocr'
 
 export function DocumentDetailPage() {
   const { documentId = '' } = useParams()
@@ -30,8 +31,7 @@ export function DocumentDetailPage() {
   // The report is null until extraction finishes; show the document with an empty page list meanwhile.
   const r = data.report ?? { document_id: data.document_id, status: data.status, pages: [], chunks: data.chunks, ocr_cost_usd: data.ocr_cost_usd, duration_ms: 0 }
   const needsReview = r.pages.filter((p) => p.status === 'NEEDS_REVIEW').length
-  const ocrIn = r.pages.reduce((a, p) => a + (p.ocr?.input_tokens ?? 0), 0)
-  const ocrOut = r.pages.reduce((a, p) => a + (p.ocr?.output_tokens ?? 0), 0)
+  const { tokensIn: ocrIn, tokensOut: ocrOut } = ocrTokens(r)
 
   return (
     <div className="space-y-5">
@@ -89,8 +89,8 @@ export function DocumentDetailPage() {
                   <div className="flex flex-wrap gap-1">{p.flags.map((f) => <Badge key={f} tone={f === 'INJECTION_SUSPECT' ? 'red' : 'amber'}>{f}</Badge>)}</div>
                 </td>
                 <td className="td"><StatusBadge status={p.status} /></td>
-                <td className="td text-xs" title={p.ocr ? `Cost ${formatCost(p.ocr.cost_usd)}` : undefined}>
-                  {p.ocr ? `${p.ocr.model} · ${formatTokens(p.ocr.input_tokens, p.ocr.output_tokens)}` : ''}
+                <td className="td whitespace-nowrap text-xs">
+                  {p.ocr ? `${p.ocr.model} · ${formatTokens(p.ocr.input_tokens, p.ocr.output_tokens)} · ${formatCost(p.ocr.cost_usd)}` : ''}
                 </td>
                 <td className="td">
                   <Link to={`/admin/documents/${data.document_id}/pages/${p.page}`} className="text-xs text-indigo-600 hover:underline">

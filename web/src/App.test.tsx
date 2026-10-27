@@ -96,6 +96,24 @@ describe('admin dashboard', () => {
   })
 })
 
+describe('OCR tokens', () => {
+  it('shows OCR tokens next to the cost in the document list', async () => {
+    renderWithProviders(<App />, '/admin/documents')
+    const row = (title: RegExp, version: string) =>
+      screen.getAllByRole('row').find((r) => title.test(r.textContent ?? '') && r.textContent?.includes(version)) as HTMLElement
+    await screen.findAllByText('Travel and Expense Policy', {}, { timeout: 3000 })
+    await waitFor(() => expect(row(/Travel and Expense Policy/, 'v1.0')).toHaveTextContent('1,700 tokens · $0.001100'), { timeout: 3000 })
+    expect(row(/Travel and Expense Policy/, 'v2.0')).toHaveTextContent('no OCR')
+    await waitFor(() => expect(row(/Vendor Onboarding Note/, 'v1.0')).toHaveTextContent('3,140 tokens · price not set'), { timeout: 3000 })
+  })
+
+  it('shows OCR tokens and cost per page on the document page', async () => {
+    renderWithProviders(<App />, '/admin/documents/doc_19c0')
+    expect(await screen.findByText('gemini-flash · 1,700 tokens · $0.000400', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByText('1,700 tokens (1,290 in · 410 out)')).toBeInTheDocument()
+  })
+})
+
 describe('admin login in the web app', () => {
   it('uses the demo password when nothing is set up', async () => {
     vi.stubEnv('VITE_ADMIN_PASSWORD_SHA256', '')
