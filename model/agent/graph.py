@@ -206,6 +206,20 @@ def _ask_model(state: AgentState, llm: LLMPort, system: str, user: str) -> dict:
     return {"answer": answer, "replies": replies}
 
 
+_ID = r"""\s*["']?\s*([TE]\d+)\s*["']?"""
+_MARKER = re.compile(rf"【(\w+)】|\[{_ID}((?:\s*,{_ID})*)\s*\]")
+
+
+def plain_citations(text: str) -> str:
+    """FR-08: the chat links citations written as [T1]. The live model also writes 【T1】, ["T1"] and ["E1", "E2"];
+    each becomes the plain form ([E1][E2] for a list). Text in brackets that is not an evidence id stays."""
+    def plain(m: re.Match) -> str:
+        if m.group(1):
+            return f"[{m.group(1)}]"
+        return "".join(f"[{i}]" for i in re.findall(r"[TE]\d+", m.group(0)))
+    return _MARKER.sub(plain, text)
+
+
 def _validate(state: AgentState) -> dict:
     """V1 citations, V2 grounding, V4 output safety. Nothing to check when a fixed text was chosen."""
     answer = state.get("answer")
@@ -215,8 +229,7 @@ def _validate(state: AgentState) -> dict:
     answer, citation_checks = check_citations(answer, set(evidence))
     grounding, claim_checks = check_grounding(answer, evidence)
     suspects = [e.text for e in evidence.values() if e.chunk and e.chunk.injection_suspect]
-    # the live model sometimes marks citations as 【T1】; the chat links the plain [T1] form
-    text, flags = check_output(re.sub(r"【(\w+)】", r"[\1]", answer.answer_markdown), suspects)
+    text, flags = check_output(plain_citations(answer.answer_markdown), suspects)
     if suspects:
         flags = ["INJECTION_IN_EVIDENCE", *flags]
     return {"answer": answer, "text": text, "citation_checks": citation_checks, "grounding": grounding,

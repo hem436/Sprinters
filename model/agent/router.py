@@ -29,6 +29,10 @@ _COMPARE_WORDS = re.compile(r"\b(compare|comparison|growth|grew|trend|by segment
 _DOC_WORDS = re.compile(r"\b(policy|policies|rule|procedure|sop|guideline|says?|allowed|approv(e|es|al|als|er|ers|ing)|"
                         r"why|explain|reason|outlook|risk|require\w*)\b", re.I)
 _GREETING = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|good (morning|afternoon|evening))\b[\s!.?]*$", re.I)
+# R1: the only questions the planner may call small talk. "Who is the CEO of Arka Fintech?" is a question about the
+# company: it must search the documents and say "could not find", not greet (FR-07, FR-10).
+_SMALLTALK = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|ok(ay)?|bye|goodbye|good (morning|afternoon|evening)|"
+                        r"who are you|what can you do|how are you|what do you do|help)\b[\s\w,!.?']{0,20}$", re.I)
 
 
 def rule_signals(question: str) -> tuple[bool, bool]:
@@ -102,7 +106,15 @@ def route_question(question: str, context: list[Turn], llm: LLMPort, tools: Tool
             note = f"tool re-ask failed: {str(error)[:200]}"     # recorded in the plan stage, never silent
         if decision.tool is None:
             decision = _planners_route(planner, note)
-    return settle_tool(decision), replies
+    return settle_tool(only_real_smalltalk(decision, question)), replies
+
+
+def only_real_smalltalk(decision: RouteDecision, question: str) -> RouteDecision:
+    """R1: the planner's CONVERSATIONAL stands only for real small talk; any other question searches the documents,
+    so a question we cannot answer gets the honest "could not find" (G1), never a greeting."""
+    if decision.route != "CONVERSATIONAL" or _SMALLTALK.match(question):
+        return decision
+    return RouteDecision("DOCS", decision.standalone_query or question, reason="RULE_OVERRIDE")
 
 
 def _planners_route(planner: RouteDecision, note: str) -> RouteDecision:
