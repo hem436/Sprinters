@@ -91,8 +91,11 @@ class Agent:
              config_id: str | None) -> Iterator[tuple[str, object]]:
         started = time.perf_counter()
         cfg = replace(self.cfg, config_id=config_id) if config_id else self.cfg
+        # 04 S3, 06: masked once, here, so no stage, prompt or session ever holds the raw personal data (review #25)
+        question, pii = mask_pii(question)
         inputs = {"question": question, "filters": filters, "cfg": cfg, "recorder": recorder,
-                  "history": self.sessions.history(session_id), "replies": [], "safety_flags": []}
+                  "history": self.sessions.history(session_id), "replies": [],
+                  "safety_flags": [f"PII_IN_QUESTION_{kind}" for kind in pii]}
         state: dict = dict(inputs)
         try:
             for mode, chunk in self._graph.stream(inputs, stream_mode=["custom", "values"]):

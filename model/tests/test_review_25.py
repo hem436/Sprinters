@@ -70,7 +70,7 @@ def test_r1_4_dropped_connection_uses_the_fallback_model(monkeypatch):
     client = OpenAICompatibleLLM("http://x", "k", "primary", fallback_model="fallback")
     calls = []
 
-    def fake_call(model, system, user, json_mode):
+    def fake_call(model, system, user, json_mode, timeout_s=None):
         calls.append(model)
         if model == "primary":
             raise http.client.RemoteDisconnected("closed")
@@ -383,6 +383,189 @@ def test_r4_7_a_no_tool_result_is_not_a_tool_failure(corpus, table_reranker):
 
 
 def test_r4_9_the_failing_agent_is_built_only_when_a_case_needs_it(corpus, table_reranker, monkeypatch):
+    _r4_9(corpus, table_reranker, monkeypatch)
+
+
+# --- fifth review of d7212ff..dd9fc60 (merged as a26d5a8) --------------------------------------------------------
+
+def test_r5_1_spend_alone_is_not_a_data_thing():
+    from agent.router import rule_signals
+    assert rule_signals("How much can I spend on a hotel per night?")[0] is False
+    assert rule_signals("What is the average spend per trip?")[0] is True      # "trip" is the data thing
+
+
+def test_r5_2_a_claim_may_name_its_tag_facts_in_any_usual_form(corpus):
+    from agent.types import AnswerJSON, Claim
+    from agent.validate import check_grounding
+    sop = dataclasses.replace(corpus["c_sop_laptop"], version="2.0", effective_date="2026-04-01")
+    evidence = {e.id: e for e in build_evidence([ScoredChunk(sop, 0.9)], [], [], 6000)}
+    claim = Claim(text="POL-HR-014 version 2, effective 1 April 2026, says every laptop must be encrypted.",
+                  citations=["E1"])
+    wrong = Claim(text="POL-HR-014 says 2 laptops must be encrypted.", citations=["E1"])
+    _, checks = check_grounding(AnswerJSON(answer_markdown="", claims=[claim, wrong]), evidence)
+    assert [c.supported for c in checks] == [True, False]
+
+
+def test_r5_3_no_tool_keeps_the_planners_reason_and_records_a_failed_re_ask():
+    (fallback, _), _ = _route("How many Finance laptops are there?", "not json", DOCS)
+    assert (fallback.route, fallback.reason) == ("DOCS", "ROUTE_FALLBACK")
+    small_talk = {"route": "CONVERSATIONAL", "standalone_query": "q", "tool": None, "tool_args": {}}
+    (talk, _), _ = _route("How many Finance laptops are there?", small_talk, DOCS)
+    assert (talk.route, talk.reason) == ("DOCS", "ROUTE_NO_TOOL")              # a data question is not small talk
+    (timeout, _), _ = _route("How many Finance laptops are there?", DOCS, LLMError("timeout"))
+    assert timeout.reason == "ROUTE_NO_TOOL" and "timeout" in timeout.note
+
+
+def test_r5_4_the_budget_keeps_rank_order_and_records_a_cut_conflict(corpus, table_reranker):
+    v2, sop = corpus["c_v2_perdiem"], corpus["c_sop_laptop"]
+    v1 = dataclasses.replace(corpus["c_v1_perdiem"], text=corpus["c_v1_perdiem"].text + " detail" * 40)
+    conflict = Conflict(v2.doc_key, v2.section, [v2, v1])
+    room = (len(v2.text) // 4 + 1) + (len(sop.text) // 4 + 1)               # v2 and the SOP fit; v2 + v1 do not
+    items = build_evidence([ScoredChunk(v2, 0.9), ScoredChunk(sop, 0.5)], [conflict], [], max_tokens=room)
+    assert [e.chunk.chunk_id for e in items] == ["c_v2_perdiem", "c_sop_laptop"]      # the top chunk first, alone
+    answer = {"answer_markdown": "₹2,000 [E1].", "claims": [{"text": "Per diem for Mumbai is ₹2,000 a day.",
+                                                              "citations": ["E1"]}]}
+    llm = FakeLLM({"route": [{"route": "DOCS", "standalone_query": "q"}], "answer": [answer]})
+    recorder = NullRecorder()
+    agent = Agent(StubSearch(corpus, vector=[Hit("c_v2_perdiem", 0.9, 1)]), StubTools(), llm,
+                  table_reranker({"Per diem": 0.9}), cfg=AgentConfig(llm_max_context_tokens=len(v2.text) // 4 + 2))
+    agent.answer("What is the per diem in Mumbai?", "s1", recorder)
+    detail = recorder.stage_details["validate"]
+    assert detail["conflict_not_shown"] is False and detail["conflict_cut_by_budget"] == ["travel-policy 4.2 Per diem"]
+
+
+def test_r5_5_both_with_no_tool_and_no_documents_is_not_found(corpus, table_reranker):
+    from agent.answer import NO_EVIDENCE_TEXT
+    both = {"route": "BOTH", "standalone_query": "q", "tool": "budget_status", "tool_args": {}}
+    tools = StubTools(results={"budget_status": ToolResult("budget_status", "NO_TOOL", message="no query fits")})
+    r = Agent(StubSearch(corpus), tools, FakeLLM({"route": [both]}), table_reranker({})).answer(
+        "Is P-104 over budget, and what does the policy say?", "s1", NullRecorder())
+    assert (r.answer_markdown, r.reason_code) == (NO_EVIDENCE_TEXT, "NO_EVIDENCE")
+
+
+def test_r5_6_a_phrase_with_punctuation_is_compared_cleanly():
+    from agent.evaluation import criteria_ok
+    assert not criteria_ok("P-104 approved.", [], ["P-104 approved"])
+    assert not criteria_ok("p-104 Approved!", [], ["P-104 approved."])
+
+
+@pytest.mark.parametrize("a, b", [("use", "uses"), ("tax", "taxes"), ("patch", "patches"), ("note", "notes")])
+def test_r5_7_plural_forms_share_a_stem(a, b):
+    from agent.validate import stem
+    assert stem(a) == stem(b)
+
+
+# --- review of dd9fc60..433a471 (merged as fb757dc) and of 433a471..56a3f13 (merged as 17840f9) ---------------------
+
+def _client(script, **kw):
+    import email.message
+    import io
+    import urllib.error
+    from agent.types import LLMReply
+    llm = OpenAICompatibleLLM("https://x", "k", "big", "small", **kw)
+    calls = []
+
+    def fake_call(model, system, user, json_mode, timeout_s=None):
+        calls.append((model, timeout_s))
+        step = script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return LLMReply("{}", model)
+
+    llm._call = fake_call
+
+    def http_429(retry_after):
+        headers = email.message.Message()
+        headers["retry-after"] = retry_after
+        return urllib.error.HTTPError("https://x", 429, "Too Many", headers, io.BytesIO(b""))
+    return llm, calls, http_429
+
+
+@pytest.mark.parametrize("header", ["-1", "inf", "nan", "soon"])
+def test_r6_2_a_bad_retry_after_never_reaches_sleep(header, monkeypatch):
+    import time as real_time
+    from types import SimpleNamespace
+    monkeypatch.setattr("agent.llm.time", SimpleNamespace(monotonic=real_time.monotonic, perf_counter=real_time.perf_counter,
+                                                          sleep=lambda s: pytest.fail(f"slept {s}")))
+    llm, _, http_429 = _client([])
+    llm, _, _ = _client([http_429(header), "ok"])
+    assert llm.complete("s", "u", purpose="answer").model == "small"
+
+
+def test_r6_3_the_planner_model_comes_from_app_yaml_by_default(monkeypatch):
+    from agent.llm import llm_from_env
+    monkeypatch.delenv("LLM_ROUTE_MODEL", raising=False)
+    assert llm_from_env().route_model == "openai/gpt-oss-20b"
+    assert llm_from_env(route_model="qwen/qwen3.8-27b").route_model == "qwen/qwen3.8-27b"
+    monkeypatch.setenv("LLM_ROUTE_MODEL", "x/override")
+    assert llm_from_env(route_model="qwen/qwen3.8-27b").route_model == "x/override"
+
+
+def test_r6_4_answers_try_the_planner_model_last():
+    llm = OpenAICompatibleLLM("https://x", "k", "big", "small", more_models=("third",), route_model="small")
+    assert llm.order("answer") == ["big", "third", "small"] and llm.order("route") == ["small", "big", "third"]
+
+
+def test_r6_5_one_call_keeps_to_its_deadline(monkeypatch):
+    import time as real_time
+    from types import SimpleNamespace
+    clock = iter([0.0, 0.0, 11.0, 11.0])                       # the second model would start after 11 s
+    monkeypatch.setattr("agent.llm.time", SimpleNamespace(monotonic=lambda: next(clock), sleep=real_time.sleep,
+                                                          perf_counter=real_time.perf_counter))
+    llm, calls, _ = _client([TimeoutError("slow"), "ok"])
+    with pytest.raises(LLMError, match="deadline"):
+        llm.complete("s", "u", purpose="route")                # route: 10 s in contract 06
+    assert len(calls) == 1 and calls[0][1] == 10.0             # the request itself got the time that was left
+
+
+def test_r6_6_every_model_failing_is_one_llm_error_with_each_reason():
+    llm, _, _ = _client([TimeoutError("slow"), ConnectionResetError("dropped")])
+    with pytest.raises(LLMError) as error:
+        llm.complete("s", "u", purpose="answer")
+    assert "big: slow" in str(error.value) and "small: dropped" in str(error.value)
+
+
+# --- review of 56a3f13..396cf42 (merged as 867cb93): personal data -----------------------------------------------
+
+def test_r8_1_ids_with_long_numbers_are_not_masked():
+    from agent.safety import mask_pii
+    assert mask_pii("Status of EXP-9876543210?") == ("Status of EXP-9876543210?", [])
+    assert mask_pii("Call 9876543210") == ("Call [PHONE]", ["PHONE"])
+
+
+def test_r8_2_years_are_not_an_aadhaar_number():
+    from agent.safety import mask_pii
+    assert mask_pii("Revenue in 2022 2023 2024")[0] == "Revenue in 2022 2023 2024"
+    assert mask_pii("Aadhaar 1234 5678 9012")[0] == "Aadhaar [AADHAAR]"
+
+
+def test_r8_3_the_search_never_gets_the_labels(corpus, table_reranker):
+    seen = []
+
+    class Watching(StubSearch):
+        def vector_search(self, query, k, filters=None):
+            seen.append(query)
+            return []
+
+    llm = FakeLLM({"route": [LLMError("down")]})                       # ROUTE_FALLBACK searches with the question
+    Agent(Watching(corpus), StubTools(), llm, table_reranker({})).answer(
+        "Mail a.b@corp.in: what is the per diem?", "s1", NullRecorder())
+    assert seen and "[EMAIL]" not in seen[0] and "per diem" in seen[0]
+
+
+def test_r8_4_masked_once_at_entry_everywhere_and_flagged(corpus, table_reranker):
+    replies = [{"route": "SQL", "standalone_query": "q", "tool": None}, {"route": "SQL", "standalone_query": "q",
+                                                                        "tool": None}]
+    llm = FakeLLM({"route": replies})
+    agent = Agent(StubSearch(corpus), StubTools(), llm, table_reranker({}))
+    recorder = NullRecorder()
+    agent.answer("My phone is 98765 43210. Total spend of P-104?", "s9", recorder)
+    assert all("98765" not in call[2] for call in llm.calls)                 # every planner call, not only the first
+    assert all("98765" not in t.text for t in agent.sessions.history("s9"))
+    assert "PII_IN_QUESTION_PHONE" in recorder.finished["safety_flags"]
+
+
+def _r4_9(corpus, table_reranker, monkeypatch):
     from agent.evaluation import EvalCase, run_eval
     agent = Agent(StubSearch(corpus), StubTools(), FakeLLM({}), table_reranker({}))
     built = []

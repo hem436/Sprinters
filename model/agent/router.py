@@ -14,13 +14,13 @@ _PROMPT = (Path(__file__).parent.parent / "prompts" / "route-v1.txt").read_text(
 _DATA_IDS = re.compile(r"\b(P-\d{3}|EXP-\d+|D-[A-Z]{2,}|LT-\d+|E\d{4})\b")
 # R1: words that ask for a computed number. Policies use them too ("How many days of paid leave?", "What is the meal
 # budget per day?"), so they need data only when the question also names a thing the business data holds (review #25).
-_MEASURE_WORDS = re.compile(r"\b(total|how many|count|spent|spend|headcount|sum|average|overspen\w*|budgets?)\b", re.I)
-# R1: the things in the business data (contract 13 schema): projects, departments, assets, employees, claims, spend.
-# A department name must not match inside a document id such as POL-HR-014. "claims" is plural on purpose: "submit a
-# travel claim" is a policy question (C02), "how many claims are pending" is data (review #25, fourth).
+_MEASURE_WORDS = re.compile(r"\b(total|how many|count|spent|spend|sum|average|overspen\w*|budgets?)\b", re.I)
+# R1: the things in the business data (contract 13 schema): projects, departments, assets, employees, claims, trips,
+# headcount. A department name must not match inside a document id such as POL-HR-014. "claims" is plural on purpose:
+# "submit a travel claim" is a policy question (C02), "how many claims are pending" is data. No word is in both lists,
+# so "How much can I spend on a hotel per night?" is not data by itself (review #25, fifth).
 _DATA_THINGS = re.compile(r"(?<![\w-])(projects?|departments?|laptops?|assets?|devices?|employees?|staff|claims|"
-                          r"headcount|spend|spent|spending|engineering|finance|human resources|operations)(?![\w-])",
-                          re.I)
+                          r"trips?|headcount|engineering|finance|human resources|operations)(?![\w-])", re.I)
 # R1b: financial-report numbers (contract 14 section 7): a metric with a period, or a comparison word.
 _METRIC_WORDS = re.compile(r"\b(revenue|profit|pat|pbt|ebitda|margin|eps|income|cash flow|borrowings|segment)\b", re.I)
 _PERIOD = re.compile(r"\b(FY\s?\d{2,4}(-\d{2})?|20\d{2}|Q[1-4])\b", re.I)
@@ -92,17 +92,27 @@ def route_question(question: str, context: list[Turn], llm: LLMPort, tools: Tool
     planner = only_approved(parse_planner(replies[0].text, question), approved)
     decision = apply_rules(planner, question)
     if decision.reason == "RULE_OVERRIDE" and decision.tool is None:
+        note = ""
         try:
             replies.append(llm.complete(system, user + FORCE_DATA_NOTE.format(route=decision.route), purpose="route"))
             second = only_approved(parse_planner(replies[-1].text, question), approved)
             decision = RouteDecision(decision.route, decision.standalone_query, second.tool, second.tool_args,
                                      "RULE_OVERRIDE")
-        except LLMError:
-            pass        # review #25: keep the first answer; without a tool the planner's route stands (below)
+        except LLMError as error:
+            note = f"tool re-ask failed: {str(error)[:200]}"     # recorded in the plan stage, never silent
         if decision.tool is None:
-            decision = RouteDecision(planner.route, planner.standalone_query, planner.tool, planner.tool_args,
-                                     "ROUTE_NO_TOOL")
+            decision = _planners_route(planner, note)
     return settle_tool(decision), replies
+
+
+def _planners_route(planner: RouteDecision, note: str) -> RouteDecision:
+    """No approved tool fits the data words, so the planner's own route stands (review #25, fourth and fifth).
+
+    A data word is never small talk, so CONVERSATIONAL becomes DOCS; the planner's own reason (ROUTE_FALLBACK after
+    broken JSON) is kept, and only a normal planner answer becomes ROUTE_NO_TOOL."""
+    route = planner.route if planner.route in ("DOCS", "SQL", "BOTH") else "DOCS"
+    reason = "ROUTE_NO_TOOL" if planner.reason == "PLANNER" else planner.reason
+    return RouteDecision(route, planner.standalone_query, planner.tool, planner.tool_args, reason, note)
 
 
 def only_approved(decision: RouteDecision, approved: set[str]) -> RouteDecision:
@@ -116,7 +126,7 @@ def settle_tool(decision: RouteDecision) -> RouteDecision:
     """A data route with no tool. SQL keeps its route, so the user hears "cannot answer this from the approved data"
     (13 section 5, NO_TOOL). BOTH drops to documents only, so a document answer is not marked as a failed tool."""
     if decision.route == "BOTH" and decision.tool is None:
-        return RouteDecision("DOCS", decision.standalone_query, reason="ROUTE_NO_TOOL")
+        return RouteDecision("DOCS", decision.standalone_query, reason="ROUTE_NO_TOOL", note=decision.note)
     return decision
 
 

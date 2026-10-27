@@ -59,7 +59,8 @@ def build_agent(config: Config):
     tools = ToolRegistry(config.paths.resolve(config.paths.business_db),
                          config.paths.resolve(config.paths.knowledge_db),
                          simulate_failure=bool(config.get("tools.simulate_failure", False)))
-    return Agent(search=SearchService(), tools=tools, llm=llm_from_env(), reranker=FlashRankReranker())
+    return Agent(search=SearchService(), tools=tools, llm=llm_from_env(route_model=config.get("llm.route_model")),
+                 reranker=FlashRankReranker())
 
 
 def get_agent(config: Config = Depends(get_config)):

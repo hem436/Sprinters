@@ -1,4 +1,5 @@
 """Checks V1 and V2 (contract 04, contract 11 section 6): are the citations real, and are the claims supported?"""
+import datetime
 import re
 from dataclasses import dataclass
 
@@ -86,19 +87,37 @@ def cited_text(e: Evidence) -> str:
 
 
 def _without_tag_refs(text: str, items: list[Evidence]) -> str:
-    """The claim without the tag facts it names: "version 2.0", the effective date, "page 3", "section 4.2"."""
+    """The claim without the tag facts it names, in the forms a model writes them (review #25, fourth and fifth):
+    "version 2.0" or "version 2", the effective date as "2026-04-01" or "1 April 2026", "page 3", "section 4.2", and
+    the id-like words of the title and section ("POL-HR-014"). Only these exact facts are taken out."""
     for e in items:
         c = e.chunk
         if c is None:
             continue
-        refs = [rf"\b(?:version|ver\.?|v)\s*{re.escape(str(c.version))}(?!\d|\.\d)", re.escape(str(c.effective_date))]
+        version = str(c.version)
+        versions = {version, version[:-2]} if version.endswith(".0") else {version}
+        refs = [rf"\b(?:version|ver\.?|v)\s*(?:{'|'.join(map(re.escape, versions))})(?!\d|\.\d)"]
+        refs += [re.escape(d) for d in _date_forms(str(c.effective_date))]
         if c.page is not None:
             refs.append(rf"\b(?:page|p\.)\s*{c.page}(?!\d)")
         refs += [rf"\b(?:section|sec\.?|§)\s*{re.escape(n)}(?!\d|\.\d)"
                  for n in re.findall(r"(?:^|>)\s*(\d+(?:\.\d+)*)", str(c.section or ""))]
+        refs += [rf"(?<![\w-]){re.escape(w)}(?![\w-])"
+                 for w in re.findall(r"[A-Za-z][\w-]*\d[\w-]*", f"{c.title} {c.section}")]
         for ref in refs:
             text = re.sub(ref, " ", text, flags=re.IGNORECASE)
     return text
+
+
+def _date_forms(iso: str) -> list[str]:
+    """2026-04-01 as a model may write it: 1 April 2026, 1 Apr 2026, April 1, 2026, 01/04/2026."""
+    try:
+        d = datetime.date.fromisoformat(iso)
+    except ValueError:
+        return [iso]
+    month, short = d.strftime("%B"), d.strftime("%b")
+    return [iso, f"{d.day} {month} {d.year}", f"{d.day} {short} {d.year}", f"{month} {d.day}, {d.year}",
+            f"{short} {d.day}, {d.year}", f"{d.day:02d}/{d.month:02d}/{d.year}", f"{d.day}/{d.month}/{d.year}"]
 
 
 # Models write non-breaking and typographic hyphens ("P‑104", "FY2026‑27"); compare them as "-" (first live run).
@@ -123,10 +142,18 @@ def stem(word: str) -> str:
     "approximately"."""
     if word in _IRREGULAR:
         return _IRREGULAR[word]
-    for suffix in _SUFFIXES:
-        if word.endswith(suffix) and len(word) - len(suffix) >= MIN_STEM and not (suffix == "s" and word.endswith("ss")):
-            word = word[:-len(suffix)] + ("y" if suffix in ("ies", "ied") else "")
-            break
+    if re.search(r"(?:s|x|z|ch|sh)es$", word) and len(word) > 4:      # taxes, patches: the plural "es"
+        word = word[:-2]
+    else:
+        for suffix in _SUFFIXES:
+            if suffix in ("es", "s"):
+                continue
+            if word.endswith(suffix) and len(word) - len(suffix) >= MIN_STEM:
+                word = word[:-len(suffix)] + ("y" if suffix in ("ies", "ied") else "")
+                break
+        else:
+            if word.endswith("s") and not word.endswith("ss") and len(word) > 3:   # uses, laptops: a plain plural
+                word = word[:-1]
     return word[:-1] if word.endswith("e") and len(word) > MIN_STEM else word
 
 

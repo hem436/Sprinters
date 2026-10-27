@@ -70,6 +70,7 @@ class RouteDecision:
     tool: str | None = None
     tool_args: dict = field(default_factory=dict)
     reason: Literal["PLANNER", "RULE_OVERRIDE", "ROUTE_FALLBACK", "RULE_GREETING", "ROUTE_NO_TOOL"] = "PLANNER"
+    note: str = ""        # what the drill-down should know, for example a failed tool re-ask (review #25)
 
 
 @dataclass(frozen=True)

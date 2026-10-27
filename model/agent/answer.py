@@ -29,10 +29,9 @@ def build_evidence(ranked: list[ScoredChunk], conflicts: list[Conflict], tools: 
                    max_tokens: int) -> list[Evidence]:
     """04 A1 and A4: number the evidence, tool results first (T1...), then chunks by rank (E1...).
 
-    Each chunk and its other versions found by rule C1 form one group. A group goes in whole or not at all, so the
-    budget never keeps v2 of a conflict without v1 (review #25). A group that does not fit is skipped and the next,
-    lower-ranked group is tried. If no group fits, the top chunk alone goes in, because some evidence is better than
-    a "not found" for a question the documents answer; validate then records the hidden conflict (review #25, fourth).
+    Each chunk and its other versions found by rule C1 form one group, taken in rank order (review #25, fifth):
+    the whole group if it fits; else the chunk alone if it fits (validate then records that the budget, not the
+    answer, cut the other versions: conflict_cut_by_budget); else the chunk is skipped and the next one is tried.
     """
     items = [Evidence(f"T{i}", "tool", _tool_text(t), tool=t) for i, t in enumerate(tools, start=1)]
     used = sum(estimate_tokens(e.text) for e in items)
@@ -41,6 +40,10 @@ def build_evidence(ranked: list[ScoredChunk], conflicts: list[Conflict], tools: 
     for scored in ranked:
         group = [scored.chunk, *versions.get((scored.chunk.doc_key, scored.chunk.section), [])]
         group = [c for c in {c.chunk_id: c for c in group}.values() if c.chunk_id not in seen]
+        if not group:
+            continue
+        if used + sum(estimate_tokens(c.text) for c in group) > max_tokens:
+            group = group[:1]                    # the chunk alone, without its other versions
         cost = sum(estimate_tokens(c.text) for c in group)
         if used + cost > max_tokens:
             continue
@@ -48,8 +51,6 @@ def build_evidence(ranked: list[ScoredChunk], conflicts: list[Conflict], tools: 
             seen.add(chunk.chunk_id)
             items.append(Evidence(f"E{len(seen)}", "document", chunk.text, chunk=chunk))
         used += cost
-    if ranked and not seen and used + estimate_tokens(ranked[0].chunk.text) <= max_tokens:
-        items.append(Evidence("E1", "document", ranked[0].chunk.text, chunk=ranked[0].chunk))
     return items
 
 
