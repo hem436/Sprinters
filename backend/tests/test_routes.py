@@ -203,7 +203,8 @@ def test_drill_down_shape(api):
 
 def test_eval_runs(api):
     assert api.get("/eval/runs").json() == []
-    assert api.post("/eval/runs", json={"config_id": "A"}).status_code == 501
+    # connected to Arka's runner (model/agent/eval_store.py, tested there); an unknown config is refused here
+    assert api.post("/eval/runs", json={"config_id": "C"}).status_code == 422
 
 
 # Documents (Myank's service) ------------------------------------------------------------------------------------
