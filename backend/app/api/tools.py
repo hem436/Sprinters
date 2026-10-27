@@ -24,6 +24,7 @@ class TryRequest(BaseModel):
 
 def get_registry(config: Config = Depends(get_config)) -> ToolRegistry:
     return ToolRegistry(config.paths.resolve(config.paths.business_db),
+                        config.paths.resolve(config.paths.knowledge_db),
                         simulate_failure=bool(config.get("tools.simulate_failure", False)))
 
 
@@ -59,6 +60,6 @@ def try_tool(name: str, body: TryRequest, registry: ToolRegistry = Depends(get_r
     return {
         "rows": result.rows,
         "summary": result.summary,
-        "provenance": {"tool": result.tool, "version": result.version, "source": "business",
+        "provenance": {"tool": result.tool, "version": result.version, "source": registry.source(name),
                        "latency_ms": result.latency_ms, "row_count": len(result.rows)},
     }

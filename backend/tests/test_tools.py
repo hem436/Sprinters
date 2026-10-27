@@ -132,7 +132,8 @@ def test_unknown_tool_and_simulated_failure(business_db):
 def test_planner_sees_names_descriptions_and_args_only(tools):
     catalogue = tools.list_tools()
     assert [t["name"] for t in catalogue] == ["project_info", "budget_status", "spend_summary", "claims_list",
-                                              "asset_compliance", "headcount"]
+                                              "asset_compliance", "headcount", "metric_value", "metric_compare",
+                                              "metric_trend", "segment_breakdown"]
     assert all(set(t) == {"name", "description", "args"} for t in catalogue)
     assert catalogue[2]["args"]["group_by"]["enum"] == ["project", "department", "category", "city"]
 
@@ -178,7 +179,7 @@ def api(config, business_db) -> TestClient:
 
 def test_get_tools_matches_the_web_app(api):
     tools = api.get("/tools").json()
-    assert len(tools) == 6
+    assert len(tools) == 10 and {t["source"] for t in tools} == {"business", "knowledge"}
     assert set(tools[0]) >= {"name", "version", "source", "description", "argument_schema", "approved",
                              "success_rate"}
     assert tools[1]["argument_schema"]["project_id"] == {"type": "string", "required": True, "example": "P-104"}

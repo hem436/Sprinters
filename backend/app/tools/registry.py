@@ -14,14 +14,26 @@ from typing import Any
 from agent.types import ToolResult
 from pydantic import ValidationError
 
-from app.tools import asset_compliance, budget_status, claims_list, headcount, project_info, spend_summary
+from app.tools import (
+    asset_compliance,
+    budget_status,
+    claims_list,
+    headcount,
+    metric_compare,
+    metric_trend,
+    metric_value,
+    project_info,
+    segment_breakdown,
+    spend_summary,
+)
 from app.tools.base import ArgsInvalid, Tool, ToolTimeout, argument_schema, connect_readonly, show_rows
 
 log = logging.getLogger(__name__)
 
 TOOLS: dict[str, Tool] = {
     t.TOOL.name: t.TOOL
-    for t in (project_info, budget_status, spend_summary, claims_list, asset_compliance, headcount)
+    for t in (project_info, budget_status, spend_summary, claims_list, asset_compliance, headcount,
+              metric_value, metric_compare, metric_trend, segment_breakdown)
 }
 
 
@@ -30,8 +42,8 @@ def _fields(exc: ValidationError) -> list[dict[str, str]]:
 
 
 class ToolRegistry:
-    def __init__(self, business_db: Path, *, simulate_failure: bool = False) -> None:
-        self.business_db = business_db
+    def __init__(self, business_db: Path, knowledge_db: Path | None = None, *, simulate_failure: bool = False) -> None:
+        self.dbs = {"business": business_db, "knowledge": knowledge_db}
         self.simulate_failure = simulate_failure      # tools.simulate_failure: the eval's tool-failure cases
 
     def list_tools(self) -> list[dict[str, Any]]:
@@ -59,7 +71,7 @@ class ToolRegistry:
             return result("TIMEOUT", message="simulated tool failure (tools.simulate_failure)"), []
         try:
             checked = tool.args.model_validate(args or {})
-            conn = connect_readonly(self.business_db)
+            conn = connect_readonly(self.dbs[tool.source])
             try:
                 rows = tool.run(conn, checked)
             finally:
@@ -75,8 +87,11 @@ class ToolRegistry:
             log.warning("tool %s failed: %s", name, exc)
             return result("DB_ERROR", message="the data is not available now"), []
         if not rows:
-            return result("EMPTY", summary="There are no matching rows for these values."), []
+            return result("EMPTY", summary=tool.empty_summary), []
         return result("OK", summary=tool.summary(checked, rows), rows=show_rows(rows)), []
+
+    def source(self, name: str) -> str:
+        return TOOLS[name].source
 
     def info(self, success_rates: dict[str, float] | None = None) -> list[dict[str, Any]]:
         """GET /tools rows, in the shape of the web app's ToolInfo (web/src/api/types.ts)."""

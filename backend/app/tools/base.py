@@ -41,9 +41,10 @@ class Tool:
     approved_by: str
     approved_on: str
     test: str
-    source: str = "business"
+    source: str = "business"                          # business.db, or "knowledge" for the facts tools
     max_rows: int = 20
     timeout_ms: int = 2000
+    empty_summary: str = "There are no matching rows for these values."
 
 
 def connect_readonly(path: Path) -> sqlite3.Connection:
@@ -85,6 +86,24 @@ def inr(paise: int) -> str:
         head = head[:-2]
     text = ",".join(([head] if head else []) + groups + [tail])
     return f"{sign}₹{text}" + (f".{rest:02d}" if rest else "")
+
+
+CRORE = 10_000_000
+
+
+def fact_value(kind: str, num: int | None) -> str | None:
+    """A financial fact in words (contract 14): amounts of a crore or more in crore, percent from basis points."""
+    if num is None:
+        return None
+    if kind == "PERCENT":
+        return f"{Decimal(num) / 100} %"
+    if kind == "COUNT":
+        return f"{num:,}"
+    if abs(num) >= CRORE:
+        # inr() takes paise, so 2 decimals of a crore are the "paise" of the crore figure.
+        hundredths = int((Decimal(num) / CRORE * 100).quantize(Decimal(1)))
+        return inr(hundredths) + " crore"
+    return inr(num * 100)
 
 
 def show_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
