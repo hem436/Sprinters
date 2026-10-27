@@ -1,8 +1,8 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetMockStore } from './api/mock/mockApi'
+import { mockApi, resetMockStore } from './api/mock/mockApi'
 import { App } from './App'
 import { resetLoginLimits } from './lib/adminAuth'
 import { renderWithProviders } from './test/render'
@@ -62,6 +62,29 @@ describe('admin dashboard', () => {
     expect(recent.textContent).not.toMatch(/SUCCESS/)
     await userEvent.click(recent.querySelector('tbody tr a') as HTMLElement)
     expect(await screen.findByText('Query drill-down', {}, { timeout: 3000 })).toBeInTheDocument()
+  })
+
+  it('shows tokens, with cost as the secondary number', async () => {
+    renderWithProviders(<App />, '/dashboard')
+    await screen.findAllByTestId('kpi-tile', {}, { timeout: 3000 })
+    const tile = screen.getAllByTestId('kpi-tile').find((t) => t.textContent?.startsWith('Tokens')) as HTMLElement
+    expect(tile).toHaveTextContent(/in · .* out · \$/)
+    const recent = screen.getByRole('region', { name: 'Recent queries' })
+    expect(within(recent).getByRole('columnheader', { name: 'Tokens' })).toBeInTheDocument()
+    expect(within(recent).queryByRole('columnheader', { name: 'Cost' })).not.toBeInTheDocument()
+  })
+
+  it('falls back to cost when the server sends no tokens for a row', async () => {
+    const real = mockApi.listQueries
+    vi.spyOn(mockApi, 'listQueries').mockImplementation(async (f) => {
+      const page = await real(f)
+      return { ...page, items: page.items.map(({ tokens_in: _i, tokens_out: _o, ...row }) => row) }
+    })
+    renderWithProviders(<App />, '/dashboard')
+    const recent = await screen.findByRole('region', { name: 'Recent queries' })
+    await waitFor(() => expect(recent.querySelectorAll('tbody tr').length).toBeGreaterThan(0), { timeout: 3000 })
+    expect(recent.querySelector('tbody tr td:nth-child(5)')?.textContent).toMatch(/^\$\d|price not set/)
+    vi.restoreAllMocks()
   })
 
   it('changes the time range', async () => {

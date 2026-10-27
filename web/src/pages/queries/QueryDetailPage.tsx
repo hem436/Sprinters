@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../../api'
 import type { DrillDown, RankedHit } from '../../api/types'
 import { Badge, Card, Empty, ErrorBanner, KeyValue, OutcomeBadge, PageHeader, RouteBadge, Spinner, StatusBadge, Table } from '../../components/ui'
-import { formatCost, formatMs, formatNumber, formatTs } from '../../lib/format'
+import { formatCost, formatMs, formatNumber, formatTokens, formatTs } from '../../lib/format'
 
 export function QueryDetailPage() {
   const { queryId = '' } = useParams()
@@ -211,6 +211,9 @@ export function DrillDownView({ d }: { d: DrillDown }) {
           ))}
         </Table>
         <p className="mt-2 text-sm">
+          Tokens: <strong>{formatTokens(d.usage.calls.reduce((a, c) => a + c.tokens_in, 0), d.usage.calls.reduce((a, c) => a + c.tokens_out, 0), true)}</strong>
+        </p>
+        <p className="mt-1 text-sm">
           Cost: <strong className={d.usage.cost_usd === null ? 'italic text-slate-400' : ''}>{formatCost(d.usage.cost_usd)}</strong>
           <span className="ml-2 text-xs text-slate-500">source: {d.usage.usage_source}</span>
         </p>

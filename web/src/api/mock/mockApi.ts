@@ -279,6 +279,8 @@ class MockStore {
         grounding_score: rec.drill.grounding.score,
         latency_ms: r.latency_ms,
         cost_usd: r.usage.cost_usd,
+        tokens_in: r.usage.tokens_in,
+        tokens_out: r.usage.tokens_out,
       }
     })
     const avg = (xs: number[]) => (xs.length ? Number((xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(3)) : null)
@@ -440,6 +442,8 @@ function toRow(r: QueryRecord): QueryListRow {
     reason_code: r.response.reason_code,
     latency_ms: r.response.latency_ms,
     cost_usd: r.response.usage.cost_usd,
+    tokens_in: r.response.usage.tokens_in,
+    tokens_out: r.response.usage.tokens_out,
     feedback: fb ? (fb.helpful ? 'HELPFUL' : 'NOT_HELPFUL') : null,
   }
 }

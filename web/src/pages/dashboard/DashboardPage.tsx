@@ -135,10 +135,10 @@ function Kpis({ m }: { m: MetricsSummary }) {
         <Small label="Tools" value={formatPct(tool)} detail={`${m.tool_success.ok} of ${m.tool_success.total} calls OK`} />
         <Small label="Safety" value={formatNumber(safetyTotal)} detail="events" title={safety.map(([f, n]) => `${f}: ${n}`).join('\n') || 'No safety events'} />
         <Small
-          label="Cost"
-          value={formatCost(m.usage.total_cost_usd)}
-          detail={`${formatCost(m.usage.cost_per_query_usd)} per query`}
-          title={`${formatNumber(m.usage.tokens_in)} tokens in, ${formatNumber(m.usage.tokens_out)} out\n${routeCost}`}
+          label="Tokens"
+          value={formatNumber(m.usage.tokens_in + m.usage.tokens_out)}
+          detail={`${formatNumber(m.usage.tokens_in)} in · ${formatNumber(m.usage.tokens_out)} out · ${formatCost(m.usage.total_cost_usd)}`}
+          title={`Cost ${formatCost(m.usage.total_cost_usd)}, ${formatCost(m.usage.cost_per_query_usd)} per query\n${routeCost}`}
         />
         <Small label="Feedback" value={formatPct(helpful)} detail={`${m.feedback.helpful} helpful · ${m.feedback.not_helpful} not`} />
       </section>
@@ -205,7 +205,7 @@ function RecentQueries({ filters }: { filters: MetricsFilters }) {
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-t border-slate-200 dark:border-slate-800">
-              {['Time', 'Question (masked)', 'Outcome', 'Latency', 'Cost', 'Feedback'].map((h) => (
+              {['Time', 'Question (masked)', 'Outcome', 'Latency', 'Tokens', 'Feedback'].map((h) => (
                 <th key={h} className="th">
                   {h}
                 </th>
@@ -237,7 +237,14 @@ function RecentQueries({ filters }: { filters: MetricsFilters }) {
                   <OutcomeBadge outcome={q.outcome} reason={q.reason_code} />
                 </td>
                 <td className="td whitespace-nowrap tabular-nums">{formatMs(q.latency_ms)}</td>
-                <td className={`td whitespace-nowrap tabular-nums ${q.cost_usd === null ? 'italic text-slate-400' : ''}`}>{formatCost(q.cost_usd)}</td>
+                <td className="td whitespace-nowrap tabular-nums" title={`Cost ${formatCost(q.cost_usd)}`}>
+                  {q.tokens_in !== undefined && q.tokens_out !== undefined ? (
+                    formatNumber(q.tokens_in + q.tokens_out)
+                  ) : (
+                    // The server does not send tokens in this list yet; show the cost meanwhile.
+                    <span className={q.cost_usd === null ? 'italic text-slate-400' : ''}>{formatCost(q.cost_usd)}</span>
+                  )}
+                </td>
                 <td className="td">
                   {q.feedback ? <Badge tone={q.feedback === 'HELPFUL' ? 'green' : 'red'}>{q.feedback === 'HELPFUL' ? 'Helpful' : 'Not helpful'}</Badge> : <span className="text-slate-400">none</span>}
                 </td>
