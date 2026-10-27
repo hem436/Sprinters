@@ -52,6 +52,8 @@ class ToolResult:
     version: int = 1
     latency_ms: int = 0
     message: str = ""
+    # the fixed SQL that ran, each {"sql": text, "params": bound values}, for the drill-down (interpretability)
+    sql: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,7 @@ class RouteDecision:
     tool: str | None = None
     tool_args: dict = field(default_factory=dict)
     reason: Literal["PLANNER", "RULE_OVERRIDE", "ROUTE_FALLBACK", "RULE_GREETING", "ROUTE_NO_TOOL"] = "PLANNER"
+    note: str = ""        # what the drill-down should know, for example a failed tool re-ask (review #25)
 
 
 @dataclass(frozen=True)

@@ -19,6 +19,8 @@ paths:
   knowledge_db: data/knowledge.db
   business_db: data/business.db
   observability_db: data/observability.db
+  eval_set: ../evals/eval_set.jsonl
+  output_dir: ../output
 
 qdrant:
   url: http://localhost:6333

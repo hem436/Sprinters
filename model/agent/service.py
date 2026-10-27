@@ -49,19 +49,42 @@ class SessionStore:
                 self._turns.popitem(last=False)
 
 
+class OneAtATime:
+    """Calls the wrapped part one call at a time (review #25). The API answers users in a thread pool and the eval
+    runs in its own thread, all on one agent. The local Qdrant client and the reranker are not documented as thread
+    safe, so their calls take turns; they last milliseconds, while the model calls (seconds) still run in parallel."""
+
+    def __init__(self, inner, lock):
+        self._inner, self._lock = inner, lock
+
+    def __getattr__(self, name):
+        value = getattr(self._inner, name)
+        if not callable(value):
+            return value
+
+        def call(*args, **kwargs):
+            with self._lock:
+                return value(*args, **kwargs)
+        return call
+
+
 class Agent:
     def __init__(self, search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: RerankerPort,
-                 cfg: AgentConfig | None = None, sessions: SessionStore | None = None):
+                 cfg: AgentConfig | None = None, sessions: SessionStore | None = None,
+                 parts_lock=None):           # one threading.Lock shared with with_tools() copies
         self.cfg = cfg or AgentConfig()
         self.sessions = sessions or SessionStore()
-        self.search, self.tools = search, tools          # the eval runner reads chunks from search
-        self._llm, self._reranker = llm, reranker
-        self._graph = build_graph(search, tools, llm, reranker)
+        self._parts = (search, llm, reranker)
+        self._parts_lock = parts_lock or threading.Lock()
+        self.search = OneAtATime(search, self._parts_lock)      # the eval runner reads chunks from search too
+        self.tools = tools
+        self._graph = build_graph(self.search, tools, llm, OneAtATime(reranker, self._parts_lock))
 
     def with_tools(self, tools: ToolPort) -> "Agent":
         """The same agent with other tools. The eval's tool-failure cases use this, so the registry that serves real
-        users is never switched to failure (review #25)."""
-        return Agent(self.search, tools, self._llm, self._reranker, self.cfg, self.sessions)
+        users is never switched to failure (review #25). Both agents share one parts lock."""
+        search, llm, reranker = self._parts
+        return Agent(search, tools, llm, reranker, self.cfg, self.sessions, self._parts_lock)
 
     def answer(self, question: str, session_id: str, recorder: RecorderPort, filters: dict | None = None,
                config_id: str | None = None) -> QueryResponse:
@@ -91,8 +114,11 @@ class Agent:
              config_id: str | None) -> Iterator[tuple[str, object]]:
         started = time.perf_counter()
         cfg = replace(self.cfg, config_id=config_id) if config_id else self.cfg
+        # 04 S3, 06: masked once, here, so no stage, prompt or session ever holds the raw personal data (review #25)
+        question, pii = mask_pii(question)
         inputs = {"question": question, "filters": filters, "cfg": cfg, "recorder": recorder,
-                  "history": self.sessions.history(session_id), "replies": [], "safety_flags": []}
+                  "history": self.sessions.history(session_id), "replies": [],
+                  "safety_flags": [f"PII_IN_QUESTION_{kind}" for kind in pii]}
         state: dict = dict(inputs)
         try:
             for mode, chunk in self._graph.stream(inputs, stream_mode=["custom", "values"]):
@@ -139,7 +165,7 @@ def _response(state: dict, query_id: str, cfg: AgentConfig, latency_ms: int) -> 
         citations=_citations(state),
         # "id" is the evidence id the answer cites (T1, T2...), so the chat can link a claim to its tool result
         tool_results=[{"id": f"T{i}", "tool": t.tool, "status": t.status, "summary": t.summary, "args": t.args,
-                       "rows": t.rows}
+                       "rows": t.rows, "sql": t.sql}
                       for i, t in enumerate(state.get("tools", []), start=1)],
         conflict=facts.conflict,
         usage=UsageOut(tokens_in=sum(r.tokens_in for r in replies), tokens_out=sum(r.tokens_out for r in replies),

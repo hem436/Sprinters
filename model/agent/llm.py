@@ -5,6 +5,7 @@ object (11 section 4); when it is missing, tokens are estimated and labelled EST
 """
 import http.client
 import json
+import math
 import os
 import re
 import time
@@ -22,6 +23,9 @@ CALL_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, Timeou
 # Groq's free tier limits tokens per minute per model (8,000 for gpt-oss). A 429 says how long to wait: up to this
 # long we wait and try the same model once more; a longer wait moves on to the next model (demo run, 27 Oct).
 MAX_RATE_WAIT_S = 6.0
+# Contract 06: AI-4 (route) 10 s, AI-5 (answer) 30 s, for all models and waits of one call together (review #25)
+DEADLINE_S = {"route": 10.0, "answer": 30.0, "repair": 30.0}
+DEFAULT_ROUTE_MODEL = "openai/gpt-oss-20b"      # backend/config/app.yaml llm.route_model
 
 
 class LLMError(RuntimeError):
@@ -42,43 +46,47 @@ class OpenAICompatibleLLM:
         self.temperature = temperature
 
     def order(self, purpose: str) -> list[str]:
-        """The models to try. The planner starts on its own model (app.yaml llm.route_model), so route and answer
-        calls use two separate per-minute limits."""
-        if purpose == "route" and self.route_model:
-            return [self.route_model, *(m for m in self.models if m != self.route_model)]
-        return self.models
+        """The models to try. The planner starts on its own model (app.yaml llm.route_model); answers try that model
+        last, so route and answer calls use separate per-minute limits as long as the others work (review #25)."""
+        others = [m for m in self.models if m != self.route_model]
+        if not self.route_model:
+            return self.models
+        return [self.route_model, *others] if purpose == "route" else [*others, self.route_model]
 
     def complete(self, system: str, user: str, *, purpose: str, json_mode: bool = True) -> LLMReply:
         """Try the models in order. Groq retires models without notice (contract 06) and limits each one per minute,
-        so a short 429 is waited out once and anything else moves on to the next model."""
-        errors = []
+        so a short 429 is waited out once and anything else moves on to the next model. The whole call keeps to the
+        deadline of contract 06 (DEADLINE_S); what is left of it is also each request's timeout."""
+        errors, deadline = [], time.monotonic() + DEADLINE_S.get(purpose, self.timeout_s)
         for model in self.order(purpose):
             for attempt in (1, 2):
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    errors.append(f"{model}: not tried, the {purpose} deadline passed")
+                    raise LLMError("; ".join(errors))
                 try:
-                    return self._call(model, system, user, json_mode)
+                    return self._call(model, system, user, json_mode, timeout_s=min(self.timeout_s, left))
                 except urllib.error.HTTPError as error:            # before CALL_ERRORS: it is also a URLError
-                    try:
-                        body = error.read().decode(errors="replace")
-                    except CALL_ERRORS:                             # the socket dropped while reading the error body
-                        body = ""
+                    body = _error_body(error)
                     wait = _retry_after(error, body)
-                    if error.code == 429 and attempt == 1 and wait is not None and wait <= MAX_RATE_WAIT_S:
+                    if (error.code == 429 and attempt == 1 and wait is not None and wait <= MAX_RATE_WAIT_S
+                            and wait < deadline - time.monotonic()):
                         time.sleep(wait)
                         continue
                     errors.append(f"{model}: HTTP {error.code} {body[:200]}")
                 except CALL_ERRORS as error:
-                    errors.append(f"{model}: {_short(error)}")
+                    errors.append(f"{model}: {str(error)[:200]}")
                 break
         raise LLMError("; ".join(errors))
 
-    def _call(self, model: str, system: str, user: str, json_mode: bool) -> LLMReply:
+    def _call(self, model: str, system: str, user: str, json_mode: bool, timeout_s: float | None = None) -> LLMReply:
         body = {"model": model, "temperature": self.temperature,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         if json_mode:
             body["response_format"] = {"type": "json_object"}
         request = urllib.request.Request(self.url, data=json.dumps(body).encode(), headers=self.headers, method="POST")
         started = time.perf_counter()
-        with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+        with urllib.request.urlopen(request, timeout=timeout_s or self.timeout_s) as response:
             data = json.loads(response.read())
             cache_hit = response.headers.get("x-portkey-cache-status", "").upper() == "HIT"
         latency_ms = int((time.perf_counter() - started) * 1000)
@@ -104,29 +112,36 @@ def _reply(text: str, model: str, usage: dict | None, prompt: str, latency_ms: i
                     latency_ms, cache_hit, "PROVIDER")
 
 
-def _retry_after(error: urllib.error.HTTPError, body: str) -> float | None:
-    """Seconds to wait, from the Retry-After header or Groq's "Please try again in 1.2s" (or "850ms")."""
-    header = error.headers.get("retry-after") if error.headers else None
+def _error_body(error: urllib.error.HTTPError) -> str:
+    """The provider's error text; "" when the socket drops while it is read (review #25)."""
     try:
-        if header is not None:
-            return float(header)
-    except ValueError:
-        pass
-    found = re.search(r"try again in (\d+(?:\.\d+)?)\s*(ms|s)\b", body)     # "1.2.3s" does not match: no wait
-    if not found:
-        return None
-    value = float(found.group(1))
-    return value / 1000 if found.group(2) == "ms" else value
+        return error.read().decode(errors="replace")
+    except CALL_ERRORS:
+        return ""
 
 
-def _short(error: Exception) -> str:
-    if isinstance(error, urllib.error.HTTPError):
-        return f"HTTP {error.code} {error.read()[:200].decode(errors='replace')}"
-    return str(error)[:200]
+def _retry_after(error: urllib.error.HTTPError, body: str) -> float | None:
+    """Seconds to wait, from the Retry-After header or Groq's "Please try again in 1.2s" (or "850ms"). Only a finite
+    value of 0 or more counts: "-1", "inf" or "1.2.3s" mean no wait (review #25)."""
+    value = None
+    header = error.headers.get("retry-after") if error.headers else None
+    if header is not None:
+        try:
+            value = float(header)
+        except ValueError:
+            value = None
+    if value is None:
+        found = re.search(r"try again in (\d+(?:\.\d+)?)\s*(ms|s)\b", body)
+        if found:
+            value = float(found.group(1)) / (1000 if found.group(2) == "ms" else 1)
+    return value if value is not None and math.isfinite(value) and value >= 0 else None
 
 
-def llm_from_env() -> OpenAICompatibleLLM:
-    """Build the client from environment variables (names in model/.env.example). Keys never live in code."""
+def llm_from_env(route_model: str | None = None) -> OpenAICompatibleLLM:
+    """Build the client from environment variables (names in model/.env.example). Keys never live in code.
+
+    The planner model: LLM_ROUTE_MODEL if set, else the caller's value (the back end passes app.yaml llm.route_model),
+    else DEFAULT_ROUTE_MODEL (review #25)."""
     headers = {}
     if os.getenv("PORTKEY_API_KEY"):
         headers["x-portkey-api-key"] = os.environ["PORTKEY_API_KEY"]
@@ -140,5 +155,5 @@ def llm_from_env() -> OpenAICompatibleLLM:
         extra_headers=headers,
         # comma list, for example "qwen/qwen3.8-27b,openai/gpt-oss-safeguard-20b": more models, more per-minute room
         more_models=tuple(m.strip() for m in os.getenv("LLM_MORE_MODELS", "").split(",") if m.strip()),
-        route_model=os.getenv("LLM_ROUTE_MODEL") or None,
+        route_model=os.getenv("LLM_ROUTE_MODEL") or route_model or DEFAULT_ROUTE_MODEL,
     )

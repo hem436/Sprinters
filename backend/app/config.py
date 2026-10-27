@@ -34,6 +34,8 @@ class PathsSection(BaseModel):
     knowledge_db: str = "data/knowledge.db"
     business_db: str = "data/business.db"
     observability_db: str = "data/observability.db"
+    eval_set: str = "../evals/eval_set.jsonl"       # POST /eval/runs (Arka's eval set)
+    output_dir: str = "../output"                   # contract 07 eval files
 
     def resolve(self, value: str) -> Path:
         path = Path(value)

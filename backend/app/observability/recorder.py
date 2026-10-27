@@ -195,14 +195,18 @@ class QueryRecorder:
         result_summary: str | None = None,
         error_category: str | None = None,
         version: str | int | None = None,
+        sql: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Returns the tool call id (T1, T2, ...) that a citation points to."""
+        """Returns the tool call id (T1, T2, ...) that a citation points to. `sql` is the fixed SQL that ran with
+        its bound parameters (masked like the arguments), so the drill-down shows where each number came from."""
         call_id = f"T{len(self._tool_calls) + 1}"
         self._tool_calls.append({
             "tool_call_id": call_id, "tool": tool, "tool_version": None if version is None else str(version),
             "args_sanitized": json.dumps(_mask_values(args or {}), default=str, sort_keys=True),
             "status": status, "row_count": row_count, "latency_ms": latency_ms, "error_category": error_category,
             "result_summary": mask_pii(result_summary)[0] if result_summary else None,
+            "sql_text": json.dumps([{"sql": s["sql"], "params": _mask_values(s.get("params") or {})} for s in sql],
+                                   default=str) if sql else None,
         })
         return call_id
 

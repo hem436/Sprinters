@@ -14,11 +14,12 @@ INJECTION_PATTERNS = [
 _INJECTION = [re.compile(p, re.IGNORECASE) for p in INJECTION_PATTERNS]
 
 # S3: personal data. Order matters: the 16-digit card must be masked before the 12-digit Aadhaar and the phone.
+# A number glued to a word or a dash is part of an id, not personal data: "EXP-9876543210" stays (review #25).
 _PII = [
-    ("[CARD]", re.compile(r"(?<!\d)(?:\d{4}[ -]?){3}\d{4}(?!\d)")),
-    ("[AADHAAR]", re.compile(r"(?<!\d)\d{4}[ -]?\d{4}[ -]?\d{4}(?!\d)")),
+    ("[CARD]", re.compile(r"(?<![\w-])(?:\d{4}[ -]?){3}\d{4}(?![\w-])")),
+    ("[AADHAAR]", re.compile(r"(?<![\w-])\d{4}[ -]?\d{4}[ -]?\d{4}(?![\w-])")),
     # Indian mobile: 10 digits starting 6 to 9, optional +91, optional space after 5 digits ("98765 43210").
-    ("[PHONE]", re.compile(r"(?<!\d)(?:\+91[ -]?)?[6-9]\d{4}[ -]?\d{5}(?!\d)")),
+    ("[PHONE]", re.compile(r"(?<![\w-])(?:\+91[ -]?)?[6-9]\d{4}[ -]?\d{5}(?![\w-])")),
     ("[PAN]", re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b")),
     ("[EMAIL]", re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")),
 ]
@@ -45,10 +46,20 @@ def mask_pii(text: str) -> tuple[str, list[str]]:
     """04 S3: replace personal data with a label. Returns the masked text and the kinds found."""
     found = []
     for label, pattern in _PII:
-        text, count = pattern.subn(label, text)
-        if count:
+        text, count = pattern.subn(lambda m, label=label: m.group(0) if _only_years(m.group(0)) else label, text)
+        if count and label in text:
             found.append(label.strip("[]"))
     return text, found
+
+
+_YEAR = re.compile(r"(?:19|20)\d\d")
+PII_LABELS = re.compile(r"\[(?:CARD|AADHAAR|PHONE|PAN|EMAIL)\]")
+
+
+def _only_years(digits: str) -> bool:
+    """"2022 2023 2024" is three years in a financial question, not an Aadhaar number (review #25)."""
+    groups = re.split(r"[ -]", digits)
+    return len(groups) > 1 and all(_YEAR.fullmatch(g) for g in groups)
 
 
 def check_output(answer: str, suspect_texts: list[str]) -> tuple[str, list[str]]:

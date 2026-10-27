@@ -18,7 +18,7 @@ from agent.ports import LLMPort, RecorderPort, RerankerPort, SearchPort, ToolPor
 from agent.recording import report_llm, report_tool, run_stage
 from agent.retrieval import Conflict, RetrievalResult, find_conflicts, retrieve
 from agent.router import ROUTE_PROMPT_VERSION, route_question
-from agent.safety import check_output, guard_question, mask_pii
+from agent.safety import PII_LABELS, check_output, guard_question
 from agent.types import AnswerJSON, Evidence, LLMReply, RouteDecision, ToolResult, Turn
 from agent.validate import check_citations, check_grounding
 
@@ -68,9 +68,7 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
 
     def plan(state: AgentState) -> dict:
         context = select_context(state.get("history", []), state["cfg"])
-        # 04 S3 and 06: no personal data reaches a hosted model, so the planner (and every later prompt, which uses its
-        # standalone query) sees the masked question; the rules run on the same masked text
-        question = mask_pii(state["question"])[0]
+        question = state["question"]        # already masked at entry (service._run), so the planner never sees PII
         with run_stage(state["recorder"], "plan", "context", "route") as stage:
             try:
                 decision, replies = route_question(question, context, llm, tools)
@@ -79,12 +77,15 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
                 decision, replies = RouteDecision("DOCS", question, reason="ROUTE_FALLBACK"), []
                 _detail(stage, llm_error=str(error)[:300])
             _detail(stage, route=decision.route, route_reason=decision.reason, tool=decision.tool)
+            if decision.note:
+                _detail(stage, route_note=decision.note)
         for reply in replies:
             report_llm(state["recorder"], "route", reply, ROUTE_PROMPT_VERSION)
         return {"context": context, "route": decision, "replies": replies}
 
     def retrieve_docs(state: AgentState) -> dict:
-        query, cfg = state["route"].standalone_query, state["cfg"]
+        # the "[PHONE]" style labels mean nothing to the search, and they lower its scores (review #25)
+        query, cfg = PII_LABELS.sub(" ", state["route"].standalone_query).strip(), state["cfg"]
         result = retrieve(query, state.get("filters"), cfg, search, reranker, state["recorder"])
         usable = has_relevant_evidence(result.top_score, result.score_kind, cfg)
         conflicts = find_conflicts([s.chunk for s in result.reranked], search) if usable else []
@@ -116,10 +117,15 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
             result = _validate(state)
             conflicts = state.get("conflicts", [])
             answer = result.get("answer") or state.get("answer")
+            # C1: blame the answer only for a conflict whose versions were all in the prompt; a version cut by the
+            # evidence budget is recorded as such (review #25, fifth)
+            in_prompt = {e.chunk.chunk_id for e in state.get("evidence", []) if e.chunk}
+            whole = [c for c in conflicts if all(v.chunk_id in in_prompt for v in c.versions)]
             _detail(stage, conflicts=[{"doc_key": c.doc_key, "section": c.section,
                                        "versions": [v.version for v in c.versions]} for c in conflicts],
-                    # C1: the model answered, code found differing versions, and the answer did not show them
-                    conflict_not_shown=bool(conflicts) and answer is not None and not answer.conflict)
+                    conflict_not_shown=bool(whole) and answer is not None and not answer.conflict,
+                    conflict_cut_by_budget=[f"{c.doc_key} {c.section}" for c in conflicts if c not in whole
+                                            and any(v.chunk_id in in_prompt for v in c.versions)])
             return result
 
     graph = StateGraph(AgentState)
@@ -159,18 +165,19 @@ def _generate(state: AgentState, llm: LLMPort) -> dict:
     docs_ok = retrieval is not None and has_relevant_evidence(retrieval.top_score, retrieval.score_kind, cfg)
     tool_results = state.get("tools", [])
     if not docs_ok and not any(t.status in ("OK", "EMPTY") for t in tool_results):
-        return _without_evidence(tool_results, state.get("no_tool", False))
+        return _without_evidence(tool_results, state.get("no_tool", False), state["route"].route)
     ranked = retrieval.reranked if docs_ok else []
     evidence = build_evidence(ranked, state.get("conflicts", []), tool_results, cfg.llm_max_context_tokens)
     system, user = build_prompt(state["route"].standalone_query, state.get("context", []), evidence)
     return {"evidence": evidence, **_ask_model(state, llm, system, user)}
 
 
-def _without_evidence(tool_results: list[ToolResult], no_tool: bool) -> dict:
+def _without_evidence(tool_results: list[ToolResult], no_tool: bool, route: str = "SQL") -> dict:
     """04 G1 and 13 section 5: which fixed text to show when nothing usable was found. The registry can also answer
-    NO_TOOL itself; that is "no approved tool fits", not a tool that is down (review #25, fourth)."""
+    NO_TOOL itself; that is "no approved tool fits", not a tool that is down (review #25, fourth). "Cannot answer from
+    the approved data" fits a data-only question; on BOTH the documents were searched too, so it is NO_EVIDENCE (fifth)."""
     if no_tool or any(t.status == "NO_TOOL" for t in tool_results):
-        return {"text": NO_TOOL_TEXT, "fallback": True}
+        return {"text": NO_TOOL_TEXT if route == "SQL" else NO_EVIDENCE_TEXT, "fallback": True}
     if tool_results:            # the tool ran and failed (timeout, database error, bad arguments)
         return {"text": TOOL_UNAVAILABLE_TEXT, "fallback": False}
     return {"text": NO_EVIDENCE_TEXT, "fallback": True}
@@ -199,6 +206,20 @@ def _ask_model(state: AgentState, llm: LLMPort, system: str, user: str) -> dict:
     return {"answer": answer, "replies": replies}
 
 
+_ID = r"""\s*["']?\s*([TE]\d+)\s*["']?"""
+_MARKER = re.compile(rf"【(\w+)】|\[{_ID}((?:\s*,{_ID})*)\s*\]")
+
+
+def plain_citations(text: str) -> str:
+    """FR-08: the chat links citations written as [T1]. The live model also writes 【T1】, ["T1"] and ["E1", "E2"];
+    each becomes the plain form ([E1][E2] for a list). Text in brackets that is not an evidence id stays."""
+    def plain(m: re.Match) -> str:
+        if m.group(1):
+            return f"[{m.group(1)}]"
+        return "".join(f"[{i}]" for i in re.findall(r"[TE]\d+", m.group(0)))
+    return _MARKER.sub(plain, text)
+
+
 def _validate(state: AgentState) -> dict:
     """V1 citations, V2 grounding, V4 output safety. Nothing to check when a fixed text was chosen."""
     answer = state.get("answer")
@@ -208,8 +229,7 @@ def _validate(state: AgentState) -> dict:
     answer, citation_checks = check_citations(answer, set(evidence))
     grounding, claim_checks = check_grounding(answer, evidence)
     suspects = [e.text for e in evidence.values() if e.chunk and e.chunk.injection_suspect]
-    # the live model sometimes marks citations as 【T1】; the chat links the plain [T1] form
-    text, flags = check_output(re.sub(r"【(\w+)】", r"[\1]", answer.answer_markdown), suspects)
+    text, flags = check_output(plain_citations(answer.answer_markdown), suspects)
     if suspects:
         flags = ["INJECTION_IN_EVIDENCE", *flags]
     return {"answer": answer, "text": text, "citation_checks": citation_checks, "grounding": grounding,

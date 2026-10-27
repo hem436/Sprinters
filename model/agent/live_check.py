@@ -80,7 +80,7 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     load_env(Path(__file__).resolve().parents[1] / ".env")
     llm = llm_from_env()
-    print(f"model {llm.models}, endpoint {llm.url.split('/')[2]}")
+    print(f"answer models {llm.order('answer')}, planner models {llm.order('route')}, endpoint {llm.url.split('/')[2]}")
     agent = Agent(KeywordSearch(CHUNKS), StubTools(results={"budget_status": P104}), llm, FlashRankReranker())
     for n, question in enumerate(QUESTIONS, start=1):
         started = time.perf_counter()

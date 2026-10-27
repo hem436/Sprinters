@@ -115,9 +115,10 @@ class NullRecorder:
                                "prompt_version": prompt_version, "cache_hit": cache_hit, "raw_output": raw_output})
 
     def tool_call(self, tool, args, status, row_count=0, latency_ms=None, *, result_summary=None,
-                  error_category=None, version=None) -> str:
+                  error_category=None, version=None, sql=None) -> str:
         self.tool_calls.append({"tool": tool, "args": args, "status": status, "row_count": row_count,
-                                "result_summary": result_summary, "error_category": error_category})
+                                "result_summary": result_summary, "error_category": error_category,
+                                "sql": sql})
         return f"T{len(self.tool_calls)}"
 
     def citations(self, validated) -> None:

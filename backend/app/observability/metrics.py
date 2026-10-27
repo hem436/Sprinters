@@ -205,7 +205,9 @@ def drill_down(db: Path, query_id: str) -> dict[str, Any] | None:
         "context_turns": turns,
         "tool_calls": [{"tool": t["tool"], "args_sanitized": json.loads(t["args_sanitized"] or "{}"),
                         "status": t["status"], "row_count": t["row_count"], "summary": t["result_summary"],
-                        "latency_ms": t["latency_ms"]} for t in tools],
+                        "latency_ms": t["latency_ms"],
+                        # the fixed SQL that ran, with its bound parameters: where each number came from
+                        "sql": json.loads(t["sql_text"]) if t.get("sql_text") else []} for t in tools],
         "generation": {"model": gen["model"] if gen else None, "prompt_version": gen["prompt_version"] if gen else None,
                        "validation": validate["status"] if validate else None,
                        "raw_output": gen["raw_output"] if gen else None},
