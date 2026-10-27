@@ -68,7 +68,10 @@ describe('admin dashboard', () => {
     renderWithProviders(<App />, '/dashboard')
     await screen.findAllByTestId('kpi-tile', {}, { timeout: 3000 })
     const tile = screen.getAllByTestId('kpi-tile').find((t) => t.textContent?.startsWith('Tokens')) as HTMLElement
-    expect(tile).toHaveTextContent(/in · .* out · \$/)
+    expect(within(tile).getByText(/ in · .* out$/)).toBeInTheDocument()
+    expect(within(tile).getByText(/^\$\d/)).toBeInTheDocument()
+    // The value is short; the full count is in its tooltip.
+    expect(within(tile).getByTitle(/ tokens$/)).toBeInTheDocument()
     const recent = screen.getByRole('region', { name: 'Recent queries' })
     expect(within(recent).getByRole('columnheader', { name: 'Tokens' })).toBeInTheDocument()
     expect(within(recent).queryByRole('columnheader', { name: 'Cost' })).not.toBeInTheDocument()
