@@ -15,7 +15,7 @@ import shutil
 import threading
 from pathlib import Path
 
-from ingestion import errors
+from ingestion import errors, fin_facts
 from ingestion.config import ExtractConfig, load_config
 from ingestion.index_bm25 import BM25Index
 from ingestion.index_vector import VectorIndex
@@ -32,12 +32,14 @@ LIVE = ("INDEXED", "PARTIAL_REVIEW", "SUPERSEDED")
 
 class Knowledge:
     def __init__(self, cfg: ExtractConfig, store: KnowledgeStore, vector: VectorIndex, ocr: OcrEngine | None,
-                 jobs: JobQueue | None = None):
+                 jobs: JobQueue | None = None, table_reader=None, label_mapper=None):
         self.cfg = cfg
         self.store = store
         self.vector = vector
         self.ocr = ocr
         self.jobs = jobs or JobQueue()
+        self.table_reader = table_reader      # contract 14 F1 (vision tables); None = only ruled and OCR tables
+        self.label_mapper = label_mapper      # contract 14 F6 (proposals); None = labels wait for a person
         self.bm25 = BM25Index()
         self._bm25_built = False
         self._bm25_lock = threading.Lock()
@@ -93,8 +95,11 @@ class Knowledge:
         self.cfg.files_dir.mkdir(parents=True, exist_ok=True)
         stored = self.cfg.files_dir / f"{document_id}.{valid.file_type}"
         shutil.copyfile(file_path, stored)
+        meta = dict(valid.meta)
+        extra = meta.pop("extra", None)
         self.store.insert_document({
-            "document_id": document_id, **valid.meta, "file_name": file_name, "file_type": valid.file_type,
+            "document_id": document_id, **meta, "extra_json": json.dumps(extra) if extra else None,
+            "file_name": file_name, "file_type": valid.file_type,
             "size_bytes": valid.size_bytes, "content_hash": valid.content_hash, "status": "QUEUED",
             "page_count": valid.page_count or None, "uploaded_by": uploaded_by, "uploaded_at": now(),
             "stored_path": str(stored),
@@ -222,9 +227,31 @@ class Knowledge:
             raise errors.illegal_move(f"A {d['status']} document cannot be deleted now.")
         self.vector.delete_document(document_id)
         self.store.delete_chunks(document_id)
+        fin_facts.delete_for_document(self.store, document_id)
         self.store.update_document(document_id, status="DELETED", chunk_count=0)
         self.apply_versions(d["doc_key"])
         self.rebuild_bm25()
+
+    # ---- contract 14: financial tables (F8) and label mappings (F6) ------------------------------------------------
+    def list_tables(self, document_id: str) -> list[dict]:
+        """GET /documents/{id}/tables: statement, basis, unit, scale, pages, checks, status, and the rows as read."""
+        self._doc(document_id)
+        return fin_facts.list_tables(self.store, document_id)
+
+    def get_table(self, table_id: str) -> dict:
+        return fin_facts.get_table(self.store, table_id)
+
+    def review_table(self, table_id: str, decision: str, admin: str, comment: str | None = None) -> dict:
+        """POST /tables/{id}/review."""
+        return fin_facts.review_table(self.store, table_id, decision, admin, comment)
+
+    def list_metric_map(self, pending: bool = False) -> list[dict]:
+        """GET /metric-map?pending=true."""
+        return fin_facts.list_metric_map(self.store, pending)
+
+    def approve_mapping(self, line_label: str, metric: str, admin: str) -> dict:
+        """POST /metric-map/approve."""
+        return fin_facts.approve_mapping(self.store, line_label, metric, admin)
 
     def _doc(self, document_id: str) -> dict:
         d = self.store.get_document(document_id)
@@ -242,13 +269,15 @@ _default_lock = threading.Lock()
 def build(cfg: ExtractConfig | None = None, inline: bool = False) -> Knowledge:
     """Real parts from the environment: Gemini OCR and embeddings, Qdrant (server if QDRANT_URL, else local folder)."""
     from ingestion.embedding import default_embedder
+    from ingestion.fin_ai import GeminiLabelMapper, GeminiTableReader
     from ingestion.ocr import GeminiOCR
 
     cfg = cfg or load_config()
     store = KnowledgeStore(cfg.db_path)
     vector = VectorIndex(default_embedder(cfg), cfg.collection, url=cfg.qdrant_url, api_key=cfg.qdrant_api_key,
                          path=cfg.qdrant_path)
-    return Knowledge(cfg, store, vector, GeminiOCR(cfg), JobQueue(inline=inline))
+    return Knowledge(cfg, store, vector, GeminiOCR(cfg), JobQueue(inline=inline),
+                     table_reader=GeminiTableReader(cfg), label_mapper=GeminiLabelMapper(cfg))
 
 
 def get_default() -> Knowledge:
@@ -305,3 +334,23 @@ def delete_document(document_id: str) -> None:
 
 def list_jobs() -> list[dict]:
     return get_default().list_jobs()
+
+
+def list_tables(document_id: str) -> list[dict]:
+    return get_default().list_tables(document_id)
+
+
+def get_table(table_id: str) -> dict:
+    return get_default().get_table(table_id)
+
+
+def review_table(table_id: str, decision: str, admin: str, comment: str | None = None) -> dict:
+    return get_default().review_table(table_id, decision, admin, comment)
+
+
+def list_metric_map(pending: bool = False) -> list[dict]:
+    return get_default().list_metric_map(pending)
+
+
+def approve_mapping(line_label: str, metric: str, admin: str) -> dict:
+    return get_default().approve_mapping(line_label, metric, admin)

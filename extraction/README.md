@@ -42,6 +42,10 @@ cp .env.example .env                   # add GEMINI_API_KEY; leave QDRANT_URL em
 | `ingestion/embedding.py`, `index_vector.py` | X9 vector index in Qdrant: deterministic point ids, payload, filters, one embedder per collection |
 | `ingestion/index_bm25.py` | X9 BM25 with the ID-aware tokenizer |
 | `ingestion/store.py`, `fin_store.py` | `knowledge.db`: document, page, chunk (contract 02); report, fin_table, fin_fact, metric_map, `v_fact_current` (contract 14) |
+| `ingestion/fin_parse.py` | contract 14 F3 to F6: numbers (brackets, Indian grouping, dashes), unit and scale, periods, basis, statement, label dictionary |
+| `ingestion/fin_tables.py` | contract 14 F1 to F7(a): collect tables, join continued tables, headers, facts, totals check |
+| `ingestion/fin_ai.py` | contract 14 F1 vision tables (JSON) and F6 label proposals, with Gemini |
+| `ingestion/fin_facts.py` | contract 14: writes report, fin_table, fin_fact, metric_map; restatements; table review and mapping services |
 | `ingestion/pipeline.py` | one document from file to index; the ExtractionReport |
 | `ingestion/service.py`, `jobs.py` | the services the routes call; document lifecycle (contract 03); the single ingest worker |
 | `ingestion/search.py` | the search interface the agent calls |
@@ -70,6 +74,21 @@ service.review_page(id, n, "APPROVE" | "REJECT", admin, comment)
 service.reindex(id); service.delete_document(id); service.list_jobs()
 ```
 
+Financial reports (contract 14): upload with the optional fields `company` (turns on fact extraction),
+`report_type` (ANNUAL or QUARTERLY) and `fiscal_year` (FY2024-25; default: the year before the effective date).
+
+```python
+service.list_tables(id)                                   # GET  /documents/{id}/tables
+service.get_table(table_id)                               # one table with its facts
+service.review_table(table_id, "APPROVE" | "REJECT", admin, comment)   # POST /tables/{id}/review
+service.list_metric_map(pending=True)                     # GET  /metric-map?pending=true
+service.approve_mapping(line_label, metric, admin)        # POST /metric-map/approve (422 UNKNOWN_METRIC)
+```
+
+Facts tools read `v_fact_current`: only APPROVED tables and mapped metrics, newest report wins, `restated` with the
+older value (`prev_value_printed`, `prev_report_id`, `prev_page`). `value_num` is an integer in the base unit: rupees
+(AMOUNT), basis points (PERCENT), paise per share (PER_SHARE, for EPS), or a count (COUNT).
+
 Each raises `ingestion.errors.IngestError` with `code`, `http_status` and `to_dict()` for the contract 05 error body.
 `v_fact_current` and the contract 14 tables are in the same `knowledge.db` (`EXTRACTION_DATA_DIR`).
 
@@ -91,8 +110,14 @@ Each raises `ingestion.errors.IngestError` with `code`, `http_status` and `to_di
 - **One embedder per collection.** The collection stores the embedder name and refuses another, so vectors of two
   models never mix.
 
+- **Financial tables are stored twice** (contract 14): as a Markdown chunk for search and citation, and as one
+  `fin_fact` row per number for the facts tools. A table goes to review when a total does not add up, the basis or
+  unit is unknown, a number does not parse, a label is unmapped, or the table was read by a vision model.
+- **Totals check:** at a "Total ..." row, the shortest run of rows (or subtotals) just above it that adds up to it is
+  replaced by the total. So "Total assets" is checked against the two subtotals without knowing the layout. A total
+  line with no rows of its own above it is recorded as unverified, not as a failure.
+
 ## Not done yet
 
-- WP-EX6 financial facts (F1 to F8): the tables and the view exist and are tested; the extraction into them is next.
 - WP-EX7 demo documents, gold set and `extraction_eval.py`; WP-EX8 ingest of the demo corpus.
 - Tesseract fallback (MAY in contract 10).

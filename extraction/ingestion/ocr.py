@@ -104,12 +104,23 @@ def ocr_cost(cfg: ExtractConfig, tokens_in: int, tokens_out: int) -> str | None:
 
 # ---- Gemini --------------------------------------------------------------------------------------------------------
 
-class GeminiOCR:
-    """The vision model through the google-genai SDK, with structured output."""
+class GeminiFailed(RuntimeError):
+    def __init__(self, message: str, usage: OcrUsage):
+        super().__init__(message)
+        self.usage = usage
 
-    def __init__(self, cfg: ExtractConfig, sleep=time.sleep):
+
+class GeminiJSON:
+    """One structured-output call to a Gemini model: JSON schema, timeout, retries with backoff on 429 / 503 / 504 /
+    timeouts / invalid JSON, key rotation on a quota error, and usage (tokens, latency, cost) for every attempt.
+    Used by the page OCR (X5), the table reader (contract 14 F1) and the label mapper (F6)."""
+
+    def __init__(self, cfg: ExtractConfig, sleep=time.sleep, model: str | None = None,
+                 thinking_level: str | None = "default"):
         self.cfg = cfg
         self._sleep = sleep
+        self.model = model or cfg.ocr_model
+        self.thinking_level = cfg.ocr_thinking_level if thinking_level == "default" else thinking_level
         self._client = None
         self._key = None
 
@@ -122,36 +133,34 @@ class GeminiOCR:
             self._key = key
         return self._client
 
-    def read(self, image: Image.Image) -> OcrResult:
+    def generate(self, contents: list, schema: type[BaseModel], prompt_version: str):
+        """Returns (parsed model, usage). Raises GeminiFailed with the usage of every attempt."""
         from google.genai import types
 
+        usage = OcrUsage(model=self.model, prompt_version=prompt_version, attempts=0)
         key = keys.current()
         if not key:
-            raise OcrFailed("GEMINI_API_KEY is not set")
-        image = prepare_image(image, self.cfg.ocr_max_edge_px)
+            raise GeminiFailed("GEMINI_API_KEY is not set", usage)
         config = types.GenerateContentConfig(
             temperature=0,
             response_mime_type="application/json",
-            response_schema=OcrPage,
-            thinking_config=(types.ThinkingConfig(thinking_level=self.cfg.ocr_thinking_level)
-                             if self.cfg.ocr_thinking_level else None),
+            response_schema=schema,
+            thinking_config=(types.ThinkingConfig(thinking_level=self.thinking_level)
+                             if self.thinking_level else None),
         )
-        usage = OcrUsage(model=self.cfg.ocr_model, prompt_version=self.cfg.ocr_prompt_version, attempts=0)
         last_error: Exception | None = None
         attempt = 0
         while attempt < self.cfg.ocr_attempts:
             usage.attempts += 1
             started = time.monotonic()
             try:
-                resp = self._client_for(key).models.generate_content(
-                    model=self.cfg.ocr_model, contents=[PROMPT_OCR_V1, image], config=config)
+                resp = self._client_for(key).models.generate_content(model=self.model, contents=contents,
+                                                                     config=config)
                 usage.latency_ms += int((time.monotonic() - started) * 1000)
                 _add_usage(usage, resp)
-                page = resp.parsed if isinstance(resp.parsed, OcrPage) else OcrPage.model_validate_json(resp.text)
+                parsed = resp.parsed if isinstance(resp.parsed, schema) else schema.model_validate_json(resp.text)
                 usage.cost_usd = ocr_cost(self.cfg, usage.input_tokens, usage.output_tokens)
-                return OcrResult(text_markdown=page.text_markdown.strip(), has_handwriting=page.has_handwriting,
-                                 has_table=page.has_table, illegible_count=page.illegible_count,
-                                 word_count=page.word_count, self_confidence=page.self_confidence, usage=usage)
+                return parsed, usage
             except Exception as e:  # SDK errors, invalid JSON, schema errors
                 usage.latency_ms += int((time.monotonic() - started) * 1000)
                 last_error = e
@@ -167,7 +176,21 @@ class GeminiOCR:
                     continue
                 break
         usage.cost_usd = ocr_cost(self.cfg, usage.input_tokens, usage.output_tokens)
-        raise OcrFailed(f"OCR failed after {usage.attempts} attempt(s): {str(last_error)[:200]}", usage)
+        raise GeminiFailed(f"failed after {usage.attempts} attempt(s): {str(last_error)[:200]}", usage)
+
+
+class GeminiOCR(GeminiJSON):
+    """X5: one page image to the OcrPage JSON."""
+
+    def read(self, image: Image.Image) -> OcrResult:
+        image = prepare_image(image, self.cfg.ocr_max_edge_px)
+        try:
+            page, usage = self.generate([PROMPT_OCR_V1, image], OcrPage, self.cfg.ocr_prompt_version)
+        except GeminiFailed as e:
+            raise OcrFailed(f"OCR {e}", e.usage) from e
+        return OcrResult(text_markdown=page.text_markdown.strip(), has_handwriting=page.has_handwriting,
+                         has_table=page.has_table, illegible_count=page.illegible_count,
+                         word_count=page.word_count, self_confidence=page.self_confidence, usage=usage)
 
 
 def _add_usage(usage: OcrUsage, resp) -> None:

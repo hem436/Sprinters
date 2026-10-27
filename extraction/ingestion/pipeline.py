@@ -10,6 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from ingestion.chunker import chunk_document
+from ingestion.fin_facts import extract_financials
 from ingestion.loaders.docx import extract_docx
 from ingestion.loaders.image import extract_image
 from ingestion.loaders.pdf import extract_pdf
@@ -64,7 +65,14 @@ def run_document(k, document_id: str, progress=None) -> dict:
             status = "PARTIAL_REVIEW"
         else:
             status = "INDEXED"
-        report = _report(document_id, status, pages, chunks, k, int((time.monotonic() - started) * 1000))
+
+        financial = None
+        try:                                                   # contract 14; a failure here never hides the pages
+            financial = extract_financials(k, doc, pages, progress) if readable else None
+        except Exception as e:
+            log.exception("financial facts failed for %s", document_id)
+            financial = {"error": str(e)[:300]}
+        report = _report(document_id, status, pages, chunks, k, int((time.monotonic() - started) * 1000), financial)
         store.update_document(document_id, status=status, page_count=len(pages), chunk_count=len(chunks),
                               ocr_cost_usd=report["ocr_cost_usd"], indexed_at=now(), report_json=json.dumps(report),
                               error=None if status != "FAILED" else "No page could be read.")
@@ -91,10 +99,11 @@ def _page_row(document_id: str, p: PageResult) -> dict:
             "ocr_json": json.dumps(ocr) if ocr else None}
 
 
-def _report(document_id: str, status: str, pages: list[PageResult], chunks: list[dict], k, duration_ms: int) -> dict:
-    """The ExtractionReport of contract 10 section 8 (P1 to P3 and P4)."""
+def _report(document_id: str, status: str, pages: list[PageResult], chunks: list[dict], k, duration_ms: int,
+            financial: dict | None = None) -> dict:
+    """The ExtractionReport of contract 10 section 8 (P1 to P3 and P4), with the contract 14 summary."""
     out_pages = []
-    costs: list[str | None] = []
+    costs: list[str | None] = [u["cost_usd"] for u in (financial or {}).get("usage", [])]
     for p in pages:
         entry = {"page": p.page, "class": p.page_class, "method": p.method or "none", "chars": p.chars,
                  "tables": sum(1 for b in p.blocks if b.type == "table"), "quality": p.quality, "flags": p.flags,
@@ -119,10 +128,11 @@ def _report(document_id: str, status: str, pages: list[PageResult], chunks: list
         "chunks": len(chunks),
         "searchable_chunks": sum(1 for c in chunks if c["searchable"]),
         "ocr_cost_usd": _sum_cost(costs),
-        "ocr_pages": len(costs),
+        "ocr_pages": sum(1 for p in pages if p.ocr is not None),
         "removed_lines": removed,
         "embedder": getattr(k.vector.embedder, "name", None),
         "duration_ms": duration_ms,
+        "financial": financial,
     }
 
 
