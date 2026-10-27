@@ -731,6 +731,26 @@ export const mockApi: Api = {
     return { ...row }
   },
 
+  async listLibrary(category) {
+    await wait(120)
+    store.tickJobs()
+    return store.documents
+      .filter((d) => (d.status === 'INDEXED' || d.status === 'PARTIAL_REVIEW') && (!category || d.category === category))
+      .map((d) => ({ document_id: d.document_id, doc_key: d.doc_key, title: d.title, category: d.category, version: d.version, effective_date: d.effective_date, pages: d.pages }))
+  },
+
+  async getLibraryPage(id, n) {
+    await wait(100)
+    const d = store.documents.find((x) => x.document_id === id)
+    const p = d?.pageList.find((x) => x.page === n)
+    const searchable = d && (d.status === 'INDEXED' || d.status === 'PARTIAL_REVIEW') && n >= 1 && n <= d.pages
+    if (!d || !searchable || (p && p.status !== 'INDEXED' && p.status !== 'APPROVED')) {
+      fail(404, 'NOT_FOUND', `Page ${n} of ${id} is not in the library.`)
+    }
+    // The seed has text only for the pages the scenarios cite; other pages get a short stand-in.
+    return { document_id: id, title: d.title, version: d.version, page: n, text: p?.text ?? `Page ${n} of ${d.title} v${d.version}.` }
+  },
+
   async listTools() {
     requireAuth()
     await wait(100)

@@ -11,6 +11,7 @@ import { ChatPage } from './pages/chat/ChatPage'
 import { DashboardPage } from './pages/dashboard/DashboardPage'
 import { EvalPage } from './pages/eval/EvalPage'
 import { QueryDetailPage } from './pages/queries/QueryDetailPage'
+import { UserDocumentsPage } from './pages/library/UserDocumentsPage'
 import { QueryListPage } from './pages/queries/QueryListPage'
 
 const guarded = (el: JSX.Element) => <RequireAuth>{el}</RequireAuth>
@@ -21,6 +22,7 @@ export function App() {
       <Route element={<Layout />}>
         <Route index element={<Navigate to="/chat" replace />} />
         <Route path="chat" element={<ChatPage />} />
+        <Route path="documents" element={<UserDocumentsPage />} />
         <Route path="login" element={<LoginPage />} />
         <Route path="dashboard" element={guarded(<DashboardPage />)} />
         <Route path="queries" element={guarded(<QueryListPage />)} />

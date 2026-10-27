@@ -6,7 +6,10 @@ import { ThemeToggle } from './ThemeToggle'
 
 // Two simple views, like Verba: employees see the chat; admins and reviewers see the dashboard first.
 
-const USER_NAV = [{ to: '/chat', label: 'Chat' }]
+const USER_NAV = [
+  { to: '/chat', label: 'Chat' },
+  { to: '/documents', label: 'Documents' },
+]
 
 const ADMIN_NAV = [
   { to: '/dashboard', label: 'Dashboard', match: ['/dashboard', '/queries'] },

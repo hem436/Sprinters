@@ -368,6 +368,26 @@ export interface Health {
 
 export type ReviewDecision = 'APPROVE' | 'REJECT'
 
+/** GET /library: a document users may read (searchable, not waiting for review). */
+export interface LibraryDocument {
+  document_id: string
+  doc_key: string
+  title: string
+  category: string
+  version: string
+  effective_date: string
+  pages: number
+}
+
+/** GET /library/{id}/pages/{n}: the text of one approved page. */
+export interface LibraryPage {
+  document_id: string
+  title: string
+  version: string
+  page: number
+  text: string
+}
+
 /** GET /auth/me (proposed with the backend admin login, PR #50). */
 export interface AuthMe {
   username: string | null
