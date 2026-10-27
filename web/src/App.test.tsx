@@ -1,8 +1,8 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetMockStore } from './api/mock/mockApi'
+import { mockApi, resetMockStore } from './api/mock/mockApi'
 import { App } from './App'
 import { resetLoginLimits } from './lib/adminAuth'
 import { renderWithProviders } from './test/render'
@@ -64,12 +64,53 @@ describe('admin dashboard', () => {
     expect(await screen.findByText('Query drill-down', {}, { timeout: 3000 })).toBeInTheDocument()
   })
 
+  it('shows tokens, with cost as the secondary number', async () => {
+    renderWithProviders(<App />, '/dashboard')
+    await screen.findAllByTestId('kpi-tile', {}, { timeout: 3000 })
+    const tile = screen.getAllByTestId('kpi-tile').find((t) => t.textContent?.startsWith('Tokens')) as HTMLElement
+    expect(tile).toHaveTextContent(/in · .* out · \$/)
+    const recent = screen.getByRole('region', { name: 'Recent queries' })
+    expect(within(recent).getByRole('columnheader', { name: 'Tokens' })).toBeInTheDocument()
+    expect(within(recent).queryByRole('columnheader', { name: 'Cost' })).not.toBeInTheDocument()
+  })
+
+  it('falls back to cost when the server sends no tokens for a row', async () => {
+    const real = mockApi.listQueries
+    vi.spyOn(mockApi, 'listQueries').mockImplementation(async (f) => {
+      const page = await real(f)
+      return { ...page, items: page.items.map(({ tokens_in: _i, tokens_out: _o, ...row }) => row) }
+    })
+    renderWithProviders(<App />, '/dashboard')
+    const recent = await screen.findByRole('region', { name: 'Recent queries' })
+    await waitFor(() => expect(recent.querySelectorAll('tbody tr').length).toBeGreaterThan(0), { timeout: 3000 })
+    expect(recent.querySelector('tbody tr td:nth-child(5)')?.textContent).toMatch(/^\$\d|price not set/)
+    vi.restoreAllMocks()
+  })
+
   it('changes the time range', async () => {
     renderWithProviders(<App />, '/dashboard')
     await screen.findAllByTestId('kpi-tile', {}, { timeout: 3000 })
     const range = within(screen.getByRole('group', { name: 'Time range' }))
     await userEvent.click(range.getByRole('button', { name: 'All' }))
     expect(range.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
+describe('OCR tokens', () => {
+  it('shows OCR tokens next to the cost in the document list', async () => {
+    renderWithProviders(<App />, '/admin/documents')
+    const row = (title: RegExp, version: string) =>
+      screen.getAllByRole('row').find((r) => title.test(r.textContent ?? '') && r.textContent?.includes(version)) as HTMLElement
+    await screen.findAllByText('Travel and Expense Policy', {}, { timeout: 3000 })
+    await waitFor(() => expect(row(/Travel and Expense Policy/, 'v1.0')).toHaveTextContent('1,700 tokens · $0.001100'), { timeout: 3000 })
+    expect(row(/Travel and Expense Policy/, 'v2.0')).toHaveTextContent('no OCR')
+    await waitFor(() => expect(row(/Vendor Onboarding Note/, 'v1.0')).toHaveTextContent('3,140 tokens · price not set'), { timeout: 3000 })
+  })
+
+  it('shows OCR tokens and cost per page on the document page', async () => {
+    renderWithProviders(<App />, '/admin/documents/doc_19c0')
+    expect(await screen.findByText('gemini-flash · 1,700 tokens · $0.000400', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByText('1,700 tokens (1,290 in · 410 out)')).toBeInTheDocument()
   })
 })
 

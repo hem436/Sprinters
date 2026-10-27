@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import type { ConfigId, EvalRun } from '../../api/types'
 import { Badge, Card, Empty, ErrorBanner, OutcomeBadge, PageHeader, RouteBadge, Spinner, StatusBadge, Table } from '../../components/ui'
-import { formatCost, formatMs, formatTs } from '../../lib/format'
+import { formatCost, formatMs, formatNumber, formatTs } from '../../lib/format'
 
 /** Measures where a lower value is better. All other measures: higher is better. */
 const LOWER_IS_BETTER = /latency|cost/i
@@ -114,7 +114,7 @@ export function Comparison({ a, b }: { a: EvalRun; b: EvalRun }) {
           </label>
         }
       >
-        <Table head={['Case', 'Scenario', 'Expected route', 'Config A', 'Config B', 'hit@5 A / B', 'Latency B', 'Cost B']} empty={shown.length === 0}>
+        <Table head={['Case', 'Scenario', 'Expected route', 'Config A', 'Config B', 'hit@5 A / B', 'Latency B', 'Tokens B']} empty={shown.length === 0}>
           {shown.map(({ a: ra, b: rb }) => (
             <tr key={rb.case_id}>
               <td className="td font-mono text-xs">{rb.case_id}</td>
@@ -124,7 +124,9 @@ export function Comparison({ a, b }: { a: EvalRun; b: EvalRun }) {
               <td className="td"><CaseCell r={rb} /></td>
               <td className="td tabular-nums">{ra?.hit_at_5 ?? 'n/a'} / {rb.hit_at_5 ?? 'n/a'}</td>
               <td className="td tabular-nums">{formatMs(rb.latency_ms)}</td>
-              <td className="td tabular-nums">{formatCost(rb.cost_usd)}</td>
+              <td className="td tabular-nums" title={`Cost ${formatCost(rb.cost_usd)}`}>
+                {rb.tokens_in !== undefined && rb.tokens_out !== undefined ? formatNumber(rb.tokens_in + rb.tokens_out) : formatCost(rb.cost_usd)}
+              </td>
             </tr>
           ))}
         </Table>
