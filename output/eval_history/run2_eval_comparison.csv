@@ -1,0 +1,15 @@
+measure,config_A,config_B,difference,better
+hit_at_5,0.9412,1.0,0.0588,B
+recall_at_5,0.8824,1.0,0.1176,B
+mrr_at_5,0.7647,0.8941,0.1294,B
+route_accuracy,0.7931,0.6552,-0.1379,A
+behavior_match,0.3793,0.7931,0.4138,B
+answer_criteria,0.3793,0.7586,0.3793,B
+citation_validity,1.0,1.0,0,same
+grounding,1.0,1.0,0,same
+faithfulness,,,,
+answer_correctness,,,,
+latency_p50_ms,883,1668,785,A
+latency_p95_ms,7529,7987,458,A
+tokens_per_query,1721.7,1174.9,-546.8,B
+cost_per_query_usd,,,,

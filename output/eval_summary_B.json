@@ -1,0 +1,18 @@
+{
+ "cases_total": 29,
+ "passed": 24,
+ "hit_at_5": 0.9412,
+ "recall_at_5": 0.9412,
+ "mrr_at_5": 0.7765,
+ "route_accuracy": 1.0,
+ "behavior_match": 0.8966,
+ "answer_criteria": 0.8966,
+ "citation_validity": 1.0,
+ "grounding": 0.9841,
+ "faithfulness": null,
+ "answer_correctness": null,
+ "latency_p50_ms": 2761,
+ "latency_p95_ms": 8989,
+ "tokens_per_query": 3570.9,
+ "cost_per_query_usd": null
+}
