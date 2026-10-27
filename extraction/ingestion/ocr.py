@@ -116,10 +116,14 @@ class GeminiJSON:
     Used by the page OCR (X5), the table reader (contract 14 F1) and the label mapper (F6)."""
 
     def __init__(self, cfg: ExtractConfig, sleep=time.sleep, model: str | None = None,
-                 thinking_level: str | None = "default"):
+                 thinking_level: str | None = "default", fallback_models: tuple[str, ...] | None = None):
         self.cfg = cfg
         self._sleep = sleep
         self.model = model or cfg.ocr_model
+        # the free tier counts its daily quota per model, so a used-up model hands over to the next one
+        chain = fallback_models if fallback_models is not None else cfg.ocr_fallback_models
+        self.models = [self.model, *[m for m in chain if m != self.model]]
+        self._model_index = 0                 # sticky: once a model is out for the day, start on the next one
         self.thinking_level = cfg.ocr_thinking_level if thinking_level == "default" else thinking_level
         self._client = None
         self._key = None
@@ -134,10 +138,15 @@ class GeminiJSON:
         return self._client
 
     def generate(self, contents: list, schema: type[BaseModel], prompt_version: str):
-        """Returns (parsed model, usage). Raises GeminiFailed with the usage of every attempt."""
+        """Returns (parsed model, usage). Raises GeminiFailed with the usage of every attempt.
+
+        On a quota error: first the next key (another project), then the next model in the chain (each model has its
+        own daily quota). A daily cap is not retried on the same key and model, because waiting does not help.
+        """
         from google.genai import types
 
-        usage = OcrUsage(model=self.model, prompt_version=prompt_version, attempts=0)
+        model = self.models[self._model_index]
+        usage = OcrUsage(model=model, prompt_version=prompt_version, attempts=0)
         key = keys.current()
         if not key:
             raise GeminiFailed("GEMINI_API_KEY is not set", usage)
@@ -154,11 +163,11 @@ class GeminiJSON:
             usage.attempts += 1
             started = time.monotonic()
             try:
-                resp = self._client_for(key).models.generate_content(model=self.model, contents=contents,
-                                                                     config=config)
+                resp = self._client_for(key).models.generate_content(model=model, contents=contents, config=config)
                 usage.latency_ms += int((time.monotonic() - started) * 1000)
                 _add_usage(usage, resp)
                 parsed = resp.parsed if isinstance(resp.parsed, schema) else schema.model_validate_json(resp.text)
+                usage.model = model
                 usage.cost_usd = ocr_cost(self.cfg, usage.input_tokens, usage.output_tokens)
                 return parsed, usage
             except Exception as e:  # SDK errors, invalid JSON, schema errors
@@ -169,12 +178,22 @@ class GeminiJSON:
                     if nxt:
                         key = nxt
                         continue                   # a new key does not use up an attempt
+                    if keys.is_daily_cap(e) and self._model_index + 1 < len(self.models):
+                        self._model_index += 1
+                        model = self.models[self._model_index]
+                        keys.reset()               # the next model has its own quota on every key
+                        key = keys.current()
+                        log.warning("daily quota used up; switching to %s", model)
+                        continue                   # nor does a new model
+                    if keys.is_daily_cap(e):
+                        break                      # every key and model is out for the day: waiting does not help
                 attempt += 1
                 if attempt < self.cfg.ocr_attempts and (keys.is_quota_error(e) or keys.is_transient(e)
                                                         or "json" in str(e).lower() or "validation" in str(e).lower()):
                     self._sleep(2 ** attempt)
                     continue
                 break
+        usage.model = model
         usage.cost_usd = ocr_cost(self.cfg, usage.input_tokens, usage.output_tokens)
         raise GeminiFailed(f"failed after {usage.attempts} attempt(s): {str(last_error)[:200]}", usage)
 

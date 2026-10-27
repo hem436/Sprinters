@@ -53,3 +53,9 @@ def is_transient(exc: Exception) -> bool:
     text = str(exc).lower()
     return any(m in text for m in ("503", "504", "unavailable", "timeout", "timed out", "deadline", "overloaded",
                                    "500"))
+
+
+def is_daily_cap(exc: Exception) -> bool:
+    """A per-day quota (GenerateRequestsPerDayPerProjectPerModel...): only a new key or another model helps."""
+    text = str(exc).lower()
+    return is_quota_error(exc) and ("perday" in text or "per day" in text or "daily" in text)
