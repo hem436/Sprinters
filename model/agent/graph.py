@@ -17,7 +17,7 @@ from agent.outcome import has_relevant_evidence
 from agent.ports import LLMPort, RecorderPort, RerankerPort, SearchPort, ToolPort
 from agent.recording import report_llm, report_tool, run_stage
 from agent.retrieval import Conflict, RetrievalResult, find_conflicts, retrieve
-from agent.router import ROUTE_PROMPT_VERSION, route_question
+from agent.router import ROUTE_PROMPT_VERSION, fix_tool_args, route_question
 from agent.safety import PII_LABELS, check_output, guard_question
 from agent.types import AnswerJSON, Evidence, LLMReply, RouteDecision, ToolResult, Turn
 from agent.validate import check_citations, check_grounding
@@ -99,11 +99,22 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
             with run_stage(state["recorder"], "tool") as stage:
                 _detail(stage, tool=None, status="NO_TOOL")
             return {"tools": [], "no_tool": True}
-        with run_stage(state["recorder"], "tool"):
+        recorder, replies = state["recorder"], []
+        with run_stage(recorder, "tool") as stage:
             result = tools.run_tool(decision.tool, decision.tool_args)
+            if result.status == "ARGS_INVALID":
+                # T2: one more planner call with the tool's own message; the refused call stays on record
+                fixed, replies = fix_tool_args(decision.standalone_query, state.get("context", []), decision,
+                                               result.message, llm, tools)
+                if fixed is not None:
+                    report_tool(recorder, result)
+                    result = tools.run_tool(fixed.tool, fixed.tool_args)
+                    _detail(stage, args_fixed=True, refused_args=decision.tool_args)
+        for reply in replies:
+            report_llm(recorder, "route", reply, ROUTE_PROMPT_VERSION)
         # the recorder's own id for this call, so a citation of T1 points at the stored tool_call row
-        call_id = report_tool(state["recorder"], result)
-        return {"tools": [result], "tool_call_ids": [call_id]}
+        call_id = report_tool(recorder, result)
+        return {"tools": [result], "tool_call_ids": [call_id], "replies": replies}
 
     def generate(state: AgentState) -> dict:
         with run_stage(state["recorder"], "generate", "answer") as stage:

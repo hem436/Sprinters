@@ -263,7 +263,14 @@ def test_library_shows_only_searchable(api):
 def test_tool_sql_reaches_the_answer_and_the_drill_down(api):
     """Interpretability: the reviewer sees the exact SQL and its bound values behind each number."""
     body = _ask(api)
-    assert body["tool_results"][0]["sql"][0]["params"]["project_id"] == "P-104"
+    assert "sql" not in body["tool_results"][0]           # never to every user (review #25)
     detail = api.get(f"/queries/{body['query_id']}").json()
     ran = detail["tool_calls"][0]["sql"][0]
     assert "FROM v_budget_status" in ran["sql"] and ran["params"]["project_id"] == "P-104"
+
+
+def test_eval_set_env_override_and_a_missing_file(api, monkeypatch, tmp_path):
+    """EVAL_SET overrides the config path (the Docker image sets it); a missing set is the server's 500."""
+    monkeypatch.setenv("EVAL_SET", str(tmp_path / "missing.jsonl"))
+    resp = api.post("/eval/runs", json={"config_id": "B"})
+    assert resp.status_code == 500 and resp.json()["error"]["code"] == "EVAL_SET_INVALID", resp.text

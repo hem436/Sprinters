@@ -46,7 +46,7 @@ def test_fr08_citation_markers_become_plain(written, shown):
 
 
 def test_tool_sql_goes_to_the_recorder_and_the_response(corpus, table_reranker):
-    """The registry's SQL trail is passed on unchanged, so the store and the chat can show it."""
+    """The registry's SQL trail goes to the store for the admin drill-down, not to the user's response."""
     from agent.types import ToolResult
     sql = [{"sql": "SELECT project_id FROM v_budget_status WHERE project_id = :project_id",
             "params": {"project_id": "P-104"}}]
@@ -57,4 +57,63 @@ def test_tool_sql_goes_to_the_recorder_and_the_response(corpus, table_reranker):
     recorder = NullRecorder()
     r = Agent(StubSearch(corpus), StubTools(results={"budget_status": p104}), llm, table_reranker({})).answer(
         "Is P-104 over its travel budget?", "s1", recorder)
-    assert recorder.tool_calls[0]["sql"] == sql and r.tool_results[0]["sql"] == sql
+    assert recorder.tool_calls[0]["sql"] == sql and "sql" not in r.tool_results[0]   # admin drill-down only
+
+
+class SegmentTools(StubTools):
+    """segment_breakdown accepts only metric "segment_revenue", like Sinngam's tool (eval case F03, 27 Oct)."""
+
+    def list_tools(self):
+        return [{"name": "segment_breakdown", "description": "Segment figures for one company and period",
+                 "args": {"company": "name", "period": "FYyyyy-yy", "metric": "segment_revenue|segment_result"}}]
+
+    def run_tool(self, name, args):
+        from agent.types import ToolResult
+        self.calls.append((name, args))
+        if args.get("metric") != "segment_revenue":
+            return ToolResult(name, "ARGS_INVALID", args=args, message="metric: Input should be 'segment_revenue'")
+        return ToolResult(name, "OK", summary="Payments ₹7,000 crore; Lending ₹4,256 crore", rows=[{"x": 1}], args=args)
+
+
+def _segment_plan(metric):
+    return {"route": "SQL", "standalone_query": "Company A revenue by segment FY2024-25", "tool": "segment_breakdown",
+            "tool_args": {"company": "Company A", "period": "FY2024-25", "metric": metric}}
+
+
+def test_fr07_refused_tool_arguments_are_fixed_once(corpus, table_reranker):
+    answer = {"answer_markdown": "Payments ₹7,000 crore and Lending ₹4,256 crore [T1].",
+              "claims": [{"text": "Payments ₹7,000 crore and Lending ₹4,256 crore.", "citations": ["T1"]}]}
+    llm = FakeLLM({"route": [_segment_plan("revenue"), _segment_plan("segment_revenue")], "answer": [answer]})
+    tools, recorder = SegmentTools(), NullRecorder()
+    r = Agent(StubSearch(corpus), tools, llm, table_reranker({})).answer(
+        "What is Company A's revenue by segment in FY2024-25?", "s1", recorder)
+    assert [a["metric"] for _, a in tools.calls] == ["revenue", "segment_revenue"]
+    assert [t["status"] for t in recorder.tool_calls] == ["ARGS_INVALID", "OK"]     # the refused call stays on record
+    assert (r.outcome, r.reason_code) == ("SUCCESS", "OK") and recorder.stage_details["tool"]["args_fixed"] is True
+
+
+def test_fr07_a_second_refusal_is_a_controlled_tool_error(corpus, table_reranker):
+    llm = FakeLLM({"route": [_segment_plan("revenue"), _segment_plan("revenue")]})     # the planner repeats itself
+    tools, recorder = SegmentTools(), NullRecorder()
+    r = Agent(StubSearch(corpus), tools, llm, table_reranker({})).answer(
+        "What is Company A's revenue by segment in FY2024-25?", "s1", recorder)
+    assert len(tools.calls) == 1 and [t["status"] for t in recorder.tool_calls] == ["ARGS_INVALID"]
+    assert (r.outcome, r.reason_code) == ("PARTIAL", "TOOL_FAILED")
+
+
+def test_fr05_reranker_model_is_a_setting(monkeypatch):
+    """MiniLM-L-12 by default (measured better on the demo corpus); AGENT_RERANK_MODEL changes it."""
+    import sys
+    import types
+
+    from agent.retrieval import FlashRankReranker
+    made = []
+    fake = types.SimpleNamespace(Ranker=lambda **kw: made.append(kw), RerankRequest=None)
+    monkeypatch.setitem(sys.modules, "flashrank", fake)
+    monkeypatch.delenv("AGENT_RERANK_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_RERANK_CACHE", raising=False)
+    FlashRankReranker()
+    monkeypatch.setenv("AGENT_RERANK_MODEL", "ms-marco-TinyBERT-L-2-v2")
+    FlashRankReranker(cache_dir="/tmp/fr")
+    assert made == [{"model_name": "ms-marco-MiniLM-L-12-v2"},
+                    {"model_name": "ms-marco-TinyBERT-L-2-v2", "cache_dir": "/tmp/fr"}]

@@ -152,7 +152,8 @@ def stem(word: str) -> str:
                 word = word[:-len(suffix)] + ("y" if suffix in ("ies", "ied") else "")
                 break
         else:
-            if word.endswith("s") and not word.endswith("ss") and len(word) > 3:   # uses, laptops: a plain plural
+            # uses, laptops: a plain plural; status, bonus, basis end in "s" but are singular (review #25)
+            if word.endswith("s") and not word.endswith(("ss", "us", "is")) and len(word) > 3:
                 word = word[:-1]
     return word[:-1] if word.endswith("e") and len(word) > MIN_STEM else word
 

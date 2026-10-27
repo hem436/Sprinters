@@ -515,7 +515,8 @@ def test_r6_5_one_call_keeps_to_its_deadline(monkeypatch):
     llm, calls, _ = _client([TimeoutError("slow"), "ok"])
     with pytest.raises(LLMError, match="deadline"):
         llm.complete("s", "u", purpose="route")                # route: 10 s in contract 06
-    assert len(calls) == 1 and calls[0][1] == 10.0             # the request itself got the time that was left
+    # a model with another one after it gets at most ATTEMPT_SHARE of the time left (review of 30ac1d1)
+    assert len(calls) == 1 and calls[0][1] == 6.0
 
 
 def test_r6_6_every_model_failing_is_one_llm_error_with_each_reason():
@@ -573,3 +574,74 @@ def _r4_9(corpus, table_reranker, monkeypatch):
     case = EvalCase("G01", "small_talk", ["Hello!"], "CONVERSATIONAL", "SMALLTALK")
     run_eval(agent, agent.search, [case], "B", lambda q, s, c: NullRecorder())
     assert built == []
+
+
+# --- review of 2cdec2f..30ac1d1 (merged as 23c43b5) ------------------------------------------------------------
+
+def test_r10_1_a_slow_primary_leaves_time_for_the_fallback(monkeypatch):
+    from agent import llm as llm_mod
+    from agent.types import LLMReply
+    timeouts = []
+
+    def fake_call(self, model, system, user, json_mode, timeout_s=None):
+        timeouts.append((model, timeout_s))
+        if model == "slow":
+            raise TimeoutError("timed out")
+        return LLMReply("{}", model, 1, 1, 0, 1, False, "PROVIDER")
+    monkeypatch.setattr(llm_mod.OpenAICompatibleLLM, "_call", fake_call)
+    client = llm_mod.OpenAICompatibleLLM("http://x", "k", "slow", "fast")
+    assert client.complete("s", "u", purpose="answer").model == "fast"
+    (_, first), (_, second) = timeouts
+    assert first <= llm_mod.ATTEMPT_SHARE * llm_mod.DEADLINE_S["answer"] + 0.01 and second > 0
+
+
+def test_r10_2_the_groq_planner_model_is_used_on_groq_only(monkeypatch):
+    from agent.llm import DEFAULT_ROUTE_MODEL, llm_from_env
+    monkeypatch.delenv("LLM_ROUTE_MODEL", raising=False)
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.portkey.ai/v1")
+    assert llm_from_env(route_model="openai/gpt-oss-20b").route_model is None
+    monkeypatch.delenv("LLM_BASE_URL")
+    assert llm_from_env().route_model == DEFAULT_ROUTE_MODEL
+    monkeypatch.setenv("LLM_ROUTE_MODEL", "my-model")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.portkey.ai/v1")
+    assert llm_from_env().route_model == "my-model"
+
+
+def test_r10_4_reranker_is_not_serialised(corpus):
+    reranker = object()
+    agent = Agent(StubSearch(corpus), StubTools(), FakeLLM({}), reranker)
+    assert agent._parts[2] is reranker and type(agent._parts_lock).__name__ == "RLock"
+
+
+def test_r10_5_a_file_error_does_not_fail_the_run(tmp_path, corpus, table_reranker):
+    import json
+    import sqlite3
+
+    from agent.eval_store import start_run
+    from tests.test_eval_store import CASES, TABLES, _wait
+    db = tmp_path / "o.db"
+    con = sqlite3.connect(db)
+    con.executescript(TABLES)
+    con.close()
+    cases = tmp_path / "e.jsonl"
+    cases.write_text("\n".join(json.dumps(c) for c in CASES), encoding="utf-8")
+    blocked = tmp_path / "not_a_folder"
+    blocked.write_text("x", encoding="utf-8")            # mkdir fails here, like /output in Docker
+    agent = Agent(StubSearch(corpus), StubTools(), FakeLLM({}), table_reranker({}))
+    run_id = start_run(agent, cases, "B", db, lambda q, s, c: NullRecorder(), out_dir=blocked / "out", pause_s=0)
+    _wait(run_id)
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT status FROM eval_run WHERE run_id = ?", (run_id,)).fetchone() == ("DONE",)
+    con.close()
+
+
+@pytest.mark.parametrize("question", ["thanks, what about Q2?", "help with leave rules", "hi, what is the per diem?"])
+def test_r10_7_a_question_after_a_greeting_is_not_small_talk(question):
+    (decision, _), _ = _route(question, {"route": "CONVERSATIONAL", "standalone_query": "q", "tool": None})
+    assert decision.route == "DOCS"
+
+
+def test_r10_8_status_and_bonus_keep_their_plural_together():
+    from agent.validate import stem
+    assert stem("status") == stem("statuses") and stem("bonus") == stem("bonuses")
+    assert stem("laptops") == stem("laptop") and stem("uses") == stem("use")

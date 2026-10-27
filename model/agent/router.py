@@ -1,6 +1,7 @@
 """Rules R1 and R1b (contract 04, contract 14 section 7): choose documents, data, both, or small talk."""
 import json
 import re
+from dataclasses import replace
 from pathlib import Path
 
 from agent.llm import LLMError
@@ -30,9 +31,12 @@ _DOC_WORDS = re.compile(r"\b(policy|policies|rule|procedure|sop|guideline|says?|
                         r"why|explain|reason|outlook|risk|require\w*)\b", re.I)
 _GREETING = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|good (morning|afternoon|evening))\b[\s!.?]*$", re.I)
 # R1: the only questions the planner may call small talk. "Who is the CEO of Arka Fintech?" is a question about the
-# company: it must search the documents and say "could not find", not greet (FR-07, FR-10).
+# company: it must search the documents and say "could not find", not greet (FR-07, FR-10). The whole message must
+# be the phrase, with at most a fixed polite tail: "thanks, what about Q2?" and "help with leave rules" are
+# questions (review #25).
 _SMALLTALK = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|ok(ay)?|bye|goodbye|good (morning|afternoon|evening)|"
-                        r"who are you|what can you do|how are you|what do you do|help)\b[\s\w,!.?']{0,20}$", re.I)
+                        r"who are you|what can you do|how are you|what do you do|help)"
+                        r"([\s,]+(there|so much|a lot|again|that helps|got it|great))?[\s!.?]*$", re.I)
 
 
 def rule_signals(question: str) -> tuple[bool, bool]:
@@ -76,6 +80,27 @@ def parse_planner(text: str, question: str) -> RouteDecision:
 
 FORCE_DATA_NOTE = ("\n\nThe question needs business data. Reply with route {route}, the one tool that fits and its "
                    "arguments, or \"tool\": null if no tool fits.")
+FIX_ARGS_NOTE = ("\n\nThe tool {tool} refused these arguments: {args}. The reason: {message}. Reply with route {route}, "
+                 "the same tool, and corrected tool_args that follow the tool's argument schema.")
+
+
+def fix_tool_args(question: str, context: list[Turn], decision: RouteDecision, message: str, llm: LLMPort,
+                  tools: ToolPort) -> tuple[RouteDecision | None, list[LLMReply]]:
+    """T2 (contract 13 section 5): the tool refused the planner's arguments (ARGS_INVALID). Ask the planner once
+    more, with the tool's own message ("metric: Input should be 'segment_revenue'"). Returns the corrected decision,
+    or None when the planner changes nothing, picks another tool, or fails; then the first result stands."""
+    catalogue = tools.list_tools()
+    system = _PROMPT.replace("{tools}", json.dumps(catalogue, indent=1))
+    note = FIX_ARGS_NOTE.format(tool=decision.tool, args=json.dumps(decision.tool_args), message=message[:300],
+                                route=decision.route)
+    try:
+        reply = llm.complete(system, _planner_input(question, context) + note, purpose="route")
+    except LLMError:
+        return None, []
+    fixed = only_approved(parse_planner(reply.text, question), {t["name"] for t in catalogue})
+    if fixed.tool != decision.tool or fixed.tool_args == decision.tool_args:
+        return None, [reply]
+    return replace(decision, tool_args=fixed.tool_args), [reply]
 
 
 def route_question(question: str, context: list[Turn], llm: LLMPort, tools: ToolPort) -> tuple[RouteDecision, list[LLMReply]]:
