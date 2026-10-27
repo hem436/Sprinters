@@ -62,9 +62,9 @@ describe('feedback and metrics', () => {
     expect(m.outcome_over_time.reduce((a, b) => a + b.SUCCESS, 0)).toBe(m.total_queries)
   })
 
-  it('needs a login for the dashboard', async () => {
+  it('opens the dashboard without a login, as the team decided (issue #48)', async () => {
     saveCredentials(null)
-    await expect(mockApi.metricsSummary({})).rejects.toMatchObject({ status: 401 })
+    await expect(mockApi.metricsSummary({})).resolves.toMatchObject({ total_queries: expect.any(Number) })
   })
 })
 

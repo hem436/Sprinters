@@ -26,10 +26,11 @@ describe('every route renders on mock data', () => {
     expect((await screen.findAllByText(text, {}, { timeout: 3000 })).length).toBeGreaterThan(0)
   })
 
-  it('sends a login-less user to the login page for the dashboard', async () => {
+  it('opens admin pages without a login when VITE_ADMIN_LOGIN is off', async () => {
     saveCredentials(null)
     renderWithProviders(<App />, '/dashboard')
-    expect(await screen.findByText('Admin and reviewer login')).toBeInTheDocument()
+    expect(await screen.findByText('Total queries', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.queryByText(/Log out/)).not.toBeInTheDocument()
   })
 })
 

@@ -49,7 +49,7 @@ export function ChatMessage({
   onSelect?: (citationId: string) => void
   onRetry: () => void
 }) {
-  const { user } = useAuth()
+  const { canAdmin } = useAuth()
   const r = turn.response
   const isFallback = r?.reason_code === 'NO_EVIDENCE' || r?.reason_code === 'BLOCKED_SAFETY'
   const citations = r?.citations ?? turn.citations
@@ -115,7 +115,7 @@ export function ChatMessage({
         {r ? (
           <div className="flex flex-wrap items-center gap-3">
             <FeedbackBar queryId={r.query_id} />
-            {user ? (
+            {canAdmin ? (
               <Link to={`/queries/${r.query_id}`} className="text-xs text-indigo-600 hover:underline dark:text-indigo-300">
                 Details
               </Link>

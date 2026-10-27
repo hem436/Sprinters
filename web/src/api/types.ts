@@ -287,7 +287,8 @@ export interface ExtractionReport {
 }
 
 export interface DocumentDetail extends DocumentRow {
-  report: ExtractionReport
+  /** Null until extraction has written its report. */
+  report: ExtractionReport | null
 }
 
 export interface PageDetail {

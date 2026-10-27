@@ -30,7 +30,7 @@ const ghost =
   'inline-flex min-h-[38px] items-center whitespace-nowrap rounded-full border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
 
 export function Layout() {
-  const { user, logout } = useAuth()
+  const { user, canAdmin, loginEnabled, logout } = useAuth()
   const { pathname } = useLocation()
   const admin = isAdminPath(pathname)
 
@@ -67,7 +67,7 @@ export function Layout() {
               Back to chat
             </NavLink>
           ) : (
-            <NavLink to={user ? '/dashboard' : '/login'} className={ghost}>
+            <NavLink to={canAdmin ? '/dashboard' : '/login'} className={ghost}>
               Admin
             </NavLink>
           )}
@@ -77,7 +77,7 @@ export function Layout() {
         {admin ? (
           <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
             <HealthBadge />
-            {user ? (
+            {loginEnabled && user ? (
               <button type="button" onClick={logout} className="text-xs text-slate-500 hover:underline">
                 {user} · Log out
               </button>

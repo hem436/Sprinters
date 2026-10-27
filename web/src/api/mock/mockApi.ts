@@ -1,5 +1,5 @@
 import type { Api } from '../api'
-import { ApiError, loadCredentials } from '../client'
+import { ADMIN_LOGIN, ApiError, loadCredentials } from '../client'
 import type {
   ConfigId,
   DrillDown,
@@ -90,7 +90,7 @@ function fail(status: number, code: string, message: string, fields?: { field: s
 }
 
 function requireAuth(): void {
-  if (!loadCredentials()) fail(401, 'UNAUTHORIZED', 'Log in as an admin or reviewer to see this page.')
+  if (ADMIN_LOGIN && !loadCredentials()) fail(401, 'UNAUTHORIZED', 'Log in as an admin or reviewer to see this page.')
 }
 
 function isoOffset(d: Date): string {

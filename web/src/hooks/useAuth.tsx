@@ -1,11 +1,14 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { loadCredentials, saveCredentials, type Credentials } from '../api/client'
+import { ADMIN_LOGIN, loadCredentials, saveCredentials, type Credentials } from '../api/client'
 
 // Admin and reviewer pages use HTTP basic auth (contract 01 section 7). The server checks every call.
 // This context only decides what the page shows.
 
 interface AuthState {
   user: string | null
+  /** True when admin pages may open: always without a login, else once logged in. */
+  canAdmin: boolean
+  loginEnabled: boolean
   login: (creds: Credentials) => void
   logout: () => void
 }
@@ -22,7 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     saveCredentials(null)
     setUser(null)
   }, [])
-  const value = useMemo(() => ({ user, login, logout }), [user, login, logout])
+  const value = useMemo(() => ({ user, canAdmin: !ADMIN_LOGIN || !!user, loginEnabled: ADMIN_LOGIN, login, logout }), [user, login, logout])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

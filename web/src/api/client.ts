@@ -4,6 +4,9 @@ import type { ApiErrorBody } from './types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
+/** The team decided on no login (issue #48), so admin pages are open. Set VITE_ADMIN_LOGIN=true to ask for one. */
+export const ADMIN_LOGIN = import.meta.env.VITE_ADMIN_LOGIN === 'true'
+
 export class ApiError extends Error {
   readonly status: number
   readonly code: string
