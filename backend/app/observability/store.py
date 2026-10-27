@@ -99,7 +99,8 @@ CREATE TABLE IF NOT EXISTS tool_call (
     row_count      INTEGER NOT NULL DEFAULT 0,
     result_summary TEXT,
     latency_ms     INTEGER,
-    error_category TEXT
+    error_category TEXT,
+    sql_text       TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_tool_call_query ON tool_call (query_id);
 
@@ -186,6 +187,9 @@ def init_db(path: Path) -> None:
         # A store made before llm_call.raw_output existed gets the column; CREATE IF NOT EXISTS does not add it.
         if "raw_output" not in {r[1] for r in conn.execute("PRAGMA table_info(llm_call)")}:
             conn.execute("ALTER TABLE llm_call ADD COLUMN raw_output TEXT")
+        # The same for tool_call.sql_text (the SQL each tool ran, for the drill-down).
+        if "sql_text" not in {r[1] for r in conn.execute("PRAGMA table_info(tool_call)")}:
+            conn.execute("ALTER TABLE tool_call ADD COLUMN sql_text TEXT")
         conn.commit()
     finally:
         conn.close()

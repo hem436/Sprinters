@@ -55,7 +55,7 @@ def report_tool(recorder: RecorderPort, result: ToolResult) -> str | None:
     error = None if result.status in ("OK", "EMPTY") else result.status
     return recorder.tool_call(result.tool, result.args, result.status, len(result.rows), result.latency_ms,
                               result_summary=result.summary or result.message or None, error_category=error,
-                              version=result.version)
+                              version=result.version, sql=result.sql)
 
 
 def hit_rows(hits: list[Hit], chunks: dict[str, Chunk]) -> list[dict]:

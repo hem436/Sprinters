@@ -43,3 +43,18 @@ def test_fr10_unanswerable_company_question_gets_the_honest_fallback(corpus, tab
 ])
 def test_fr08_citation_markers_become_plain(written, shown):
     assert plain_citations(written) == shown
+
+
+def test_tool_sql_goes_to_the_recorder_and_the_response(corpus, table_reranker):
+    """The registry's SQL trail is passed on unchanged, so the store and the chat can show it."""
+    from agent.types import ToolResult
+    sql = [{"sql": "SELECT project_id FROM v_budget_status WHERE project_id = :project_id",
+            "params": {"project_id": "P-104"}}]
+    p104 = ToolResult("budget_status", "OK", summary="P-104 TRAVEL FY2026-27: spent 435500 of 400000",
+                      rows=[{"project_id": "P-104"}], args={"project_id": "P-104"}, sql=sql)
+    llm = FakeLLM({"route": [{"route": "SQL", "standalone_query": "q", "tool": "budget_status",
+                              "tool_args": {"project_id": "P-104"}}]})
+    recorder = NullRecorder()
+    r = Agent(StubSearch(corpus), StubTools(results={"budget_status": p104}), llm, table_reranker({})).answer(
+        "Is P-104 over its travel budget?", "s1", recorder)
+    assert recorder.tool_calls[0]["sql"] == sql and r.tool_results[0]["sql"] == sql

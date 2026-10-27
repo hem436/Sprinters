@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -28,6 +29,12 @@ class ArgsInvalid(Exception):
 
 class ToolTimeout(Exception):
     pass
+
+
+# The SQL that query() ran in this tool call, with its bound parameters. The registry sets a fresh list for each
+# call (a ContextVar, so two calls in two threads never mix), and the list goes into ToolResult.sql for the
+# drill-down: a reviewer sees exactly which statement produced each number.
+EXECUTED_SQL: ContextVar[list[dict[str, Any]] | None] = ContextVar("EXECUTED_SQL", default=None)
 
 
 @dataclass(frozen=True)
@@ -57,6 +64,9 @@ def connect_readonly(path: Path) -> sqlite3.Connection:
 def query(conn: sqlite3.Connection, sql: str, params: dict[str, Any], max_rows: int, timeout_ms: int) -> list[dict]:
     """Bound parameters only; a progress handler stops the query after timeout_ms."""
     deadline = time.perf_counter() + timeout_ms / 1000
+    executed = EXECUTED_SQL.get()
+    if executed is not None:
+        executed.append({"sql": " ".join(sql.split()), "params": dict(params)})
     conn.set_progress_handler(lambda: int(time.perf_counter() > deadline), 1000)
     try:
         return [dict(r) for r in conn.execute(sql, params).fetchmany(max_rows)]

@@ -52,6 +52,8 @@ class ToolResult:
     version: int = 1
     latency_ms: int = 0
     message: str = ""
+    # the fixed SQL that ran, each {"sql": text, "params": bound values}, for the drill-down (interpretability)
+    sql: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

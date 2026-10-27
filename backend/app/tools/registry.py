@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,8 @@ from app.tools import (
     segment_breakdown,
     spend_summary,
 )
-from app.tools.base import ArgsInvalid, Tool, ToolTimeout, argument_schema, connect_readonly, show_rows
+from app.tools.base import (EXECUTED_SQL, ArgsInvalid, Tool, ToolTimeout, argument_schema, connect_readonly,
+                            show_rows)
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +57,18 @@ class ToolRegistry:
         return self.run_checked(name, args)[0]
 
     def run_checked(self, name: str, args: dict[str, Any]) -> tuple[ToolResult, list[dict[str, str]]]:
-        """The ToolResult, plus the failed fields when the status is ARGS_INVALID (for POST /tools/{name}/try)."""
+        """The ToolResult, plus the failed fields when the status is ARGS_INVALID (for POST /tools/{name}/try).
+
+        The result carries the SQL that ran, with its bound parameters (`sql`), for the drill-down."""
+        executed: list[dict[str, Any]] = []
+        token = EXECUTED_SQL.set(executed)
+        try:
+            result, fields = self._run_checked(name, args)
+        finally:
+            EXECUTED_SQL.reset(token)
+        return replace(result, sql=executed), fields
+
+    def _run_checked(self, name: str, args: dict[str, Any]) -> tuple[ToolResult, list[dict[str, str]]]:
         started = time.perf_counter()
 
         def result(status: str, summary: str = "", rows: list | None = None, message: str = "") -> ToolResult:

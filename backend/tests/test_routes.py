@@ -258,3 +258,12 @@ def test_library_shows_only_searchable(api):
     assert api.get("/library/doc_a/pages/7").json()["text"].startswith("Per diem")
     assert api.get("/library/doc_a/pages/8").status_code == 404      # still waiting for review
     assert api.get("/library/doc_q/pages/1").status_code == 404
+
+
+def test_tool_sql_reaches_the_answer_and_the_drill_down(api):
+    """Interpretability: the reviewer sees the exact SQL and its bound values behind each number."""
+    body = _ask(api)
+    assert body["tool_results"][0]["sql"][0]["params"]["project_id"] == "P-104"
+    detail = api.get(f"/queries/{body['query_id']}").json()
+    ran = detail["tool_calls"][0]["sql"][0]
+    assert "FROM v_budget_status" in ran["sql"] and ran["params"]["project_id"] == "P-104"

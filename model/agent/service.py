@@ -165,7 +165,7 @@ def _response(state: dict, query_id: str, cfg: AgentConfig, latency_ms: int) -> 
         citations=_citations(state),
         # "id" is the evidence id the answer cites (T1, T2...), so the chat can link a claim to its tool result
         tool_results=[{"id": f"T{i}", "tool": t.tool, "status": t.status, "summary": t.summary, "args": t.args,
-                       "rows": t.rows}
+                       "rows": t.rows, "sql": t.sql}
                       for i, t in enumerate(state.get("tools", []), start=1)],
         conflict=facts.conflict,
         usage=UsageOut(tokens_in=sum(r.tokens_in for r in replies), tokens_out=sum(r.tokens_out for r in replies),
