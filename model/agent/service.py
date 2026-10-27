@@ -5,9 +5,9 @@ from dataclasses import asdict, replace
 
 from agent.config import AgentConfig
 from agent.graph import AgentState, build_graph
-from agent.outcome import QueryFacts, classify, confidence
+from agent.outcome import QueryFacts, classify, confidence, has_relevant_evidence
 from agent.ports import LLMPort, RecorderPort, RerankerPort, SearchPort, ToolPort
-from agent.safety import mask_pii
+from agent.recording import OutcomeFactsOut, citation_rows
 from agent.types import CitationOut, Evidence, QueryResponse, Turn, UsageOut
 
 
@@ -46,8 +46,7 @@ class Agent:
         response = _response(state, recorder.query_id, cfg, int((time.perf_counter() - started) * 1000))
         self.sessions.add(session_id, Turn("user", question, blocked=state.get("blocked", False)),
                           Turn("assistant", response.answer_markdown))
-        recorder.citations(state.get("citation_checks", []))
-        recorder.finish(response, _details(state))
+        _record(recorder, state, response, cfg)
         return response
 
 
@@ -65,8 +64,9 @@ def _response(state: AgentState, query_id: str, cfg: AgentConfig, latency_ms: in
         confidence=confidence(outcome, top, kind, cfg),
         route="BLOCKED" if state.get("blocked") else state["route"].route,
         citations=_citations(state),
-        tool_results=[{"tool": t.tool, "status": t.status, "summary": t.summary, "args": t.args}
-                      for t in state.get("tools", [])],
+        # "id" is the evidence id the answer cites (T1, T2...), so the chat can link a claim to its tool result
+        tool_results=[{"id": f"T{i}", "tool": t.tool, "status": t.status, "summary": t.summary, "args": t.args}
+                      for i, t in enumerate(state.get("tools", []), start=1)],
         conflict=facts.conflict,
         usage=UsageOut(tokens_in=sum(r.tokens_in for r in replies), tokens_out=sum(r.tokens_out for r in replies),
                        estimated=any(r.usage_source == "ESTIMATED" for r in replies)),
@@ -110,22 +110,35 @@ def _citation(e: Evidence) -> CitationOut:
     c = e.chunk
     url = f"/documents/{c.document_id}/pages/{c.page}" if c.page is not None else f"/documents/{c.document_id}"
     return CitationOut(id=e.id, kind="document", title=c.title, version=c.version, page=c.page,
-                       section=c.section, method=c.method, url=url)
+                       section=c.section, method=c.method, url=url, snippet=_snippet(c.text))
 
 
-def _details(state: AgentState) -> dict:
-    """What the drill-down needs beyond the response (11 sections 2 and 9)."""
-    route = state.get("route")
-    return {
-        "question_masked": mask_pii(state["question"])[0],
-        "normalized_query": route.standalone_query if route else None,
-        "route_reason": route.reason if route else "BLOCKED",
-        "context_turns": [{"role": t.role, "text_masked": t.text, "chars": len(t.text)} for t in state.get("context", [])],
-        "grounding_detail": [asdict(c) for c in state.get("claim_checks", [])],
-        "safety_flags": state.get("safety_flags", []),
-        "conflicts": [{"doc_key": c.doc_key, "section": c.section, "versions": [v.version for v in c.versions]}
-                      for c in state.get("conflicts", [])],
-        # C1: code found differing versions but the answer did not show them; the reviewer must see that
-        "conflict_not_shown": bool(state.get("conflicts")) and not bool(state.get("answer") and state["answer"].conflict),
-        "facts": asdict(_facts(state)),
-    }
+SNIPPET_CHARS = 300      # enough for one or two sentences in the chat's source viewer
+
+
+def _snippet(text: str) -> str:
+    return text if len(text) <= SNIPPET_CHARS else text[:SNIPPET_CHARS].rsplit(" ", 1)[0] + " ..."
+
+
+def _record(recorder: RecorderPort, state: AgentState, response: QueryResponse, cfg: AgentConfig) -> None:
+    """11 section 3: citations, context turns, then finish() once. The recorder prices the calls; the cost comes
+    back into the response (05 usage.cost_usd)."""
+    evidence = {e.id: e for e in state.get("evidence", [])}
+    recorder.citations(citation_rows(state.get("citation_checks", []), evidence))
+    recorder.context_turns([{"role": t.role, "text": t.text} for t in state.get("context", [])])
+    facts = _facts(state)
+    retrieval = state.get("retrieval")
+    result = recorder.finish(
+        response.answer_markdown, response.route, state.get("grounding"),
+        facts=OutcomeFactsOut(
+            llm_error=facts.llm_failed, output_invalid=facts.output_invalid, blocked=facts.blocked,
+            fallback=facts.fallback, tool_failed=facts.tool_needed and facts.tool_failed, conflict=facts.conflict,
+            grounding_score=state.get("grounding"), top_score=retrieval.top_score if retrieval else None),
+        normalized_query=state["route"].standalone_query if state.get("route") else None,
+        retrieval_relevant=has_relevant_evidence(retrieval.top_score, retrieval.score_kind, cfg) if retrieval else None,
+        grounding_detail=[asdict(c) for c in state.get("claim_checks", [])],
+        safety_flags=state.get("safety_flags", []),
+    )
+    if result is not None:
+        response.usage.cost_usd = result.cost_usd
+        response.usage.estimated = response.usage.estimated or result.cost_estimated
