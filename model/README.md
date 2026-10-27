@@ -42,6 +42,14 @@ response = agent.answer(question, session_id, recorder, filters=filters, config_
 return response.model_dump()                   # the body of POST /query (contract 05)
 ```
 
+Streaming (`POST /query/stream`): `agent.answer_stream(question, session_id, recorder, filters, config_id)` yields
+`(event, data)` pairs; write each as `event: <event>` and `data: <json>`. Order: `status` per stage (`guard`,
+`context`, `route`, `retrieve_vector`, `retrieve_bm25`, `fuse`, `rerank`, `tool`, `answer`, `validate`, each with a
+`label`), then `citations`, then `token` (the checked answer, word by word), then `done` (the QueryResponse). If a part
+fails (Qdrant down, a tool raises), the agent does not raise: you get `error` (`SYSTEM_ERROR`, with the query id) and
+`done` with outcome FAILED, and the recorder gets `error_category`. `answer()` runs the same path and returns the
+`done` response.
+
 Your `run_tool(name, args)` must return `agent.types.ToolResult` with a status from contract 13 section 5 and a
 `summary` sentence that holds the exact numbers. `list_tools()` returns name, description and argument schema only.
 

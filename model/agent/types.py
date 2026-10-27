@@ -32,6 +32,7 @@ class Chunk:
     method: str
     text: str
     injection_suspect: bool = False
+    current: bool | None = None       # true when this is the current version of its doc_key (Myank fills it)
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,7 @@ class CitationOut(BaseModel):
     method: str | None = None
     url: str | None = None
     snippet: str | None = None       # CHANGES DC-4 (Hemant): the cited passage, so the chat can show it
+    current: bool | None = None       # CHANGES DC-4: is this the current version; None when extraction does not say
     tool: str | None = None
     args: dict | None = None
     row_count: int | None = None

@@ -14,7 +14,7 @@ from agent.context import select_context
 from agent.llm import LLMError
 from agent.outcome import has_relevant_evidence
 from agent.ports import LLMPort, RecorderPort, RerankerPort, SearchPort, ToolPort
-from agent.recording import report_llm, report_tool
+from agent.recording import report_llm, report_tool, run_stage
 from agent.retrieval import Conflict, RetrievalResult, find_conflicts, retrieve
 from agent.router import ROUTE_PROMPT_VERSION, route_question
 from agent.safety import check_output, guard_question
@@ -54,7 +54,7 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
     """Compile the graph once; the other parts come in here, the per-query values come in the state."""
 
     def guard(state: AgentState) -> dict:
-        with state["recorder"].stage("guard"):
+        with run_stage(state["recorder"], "guard"):
             blocked, reason = guard_question(state["question"])
         if blocked:
             return {"blocked": True, "text": BLOCKED_TEXT, "safety_flags": [f"GUARD_{reason}"]}
@@ -62,7 +62,7 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
 
     def plan(state: AgentState) -> dict:
         context = select_context(state.get("history", []), state["cfg"])
-        with state["recorder"].stage("plan") as stage:
+        with run_stage(state["recorder"], "plan", "context", "route") as stage:
             try:
                 decision, replies = route_question(state["question"], context, llm, tools)
             except LLMError:
@@ -82,7 +82,7 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
 
     def run_tool(state: AgentState) -> dict:
         decision = state["route"]
-        with state["recorder"].stage("tool"):
+        with run_stage(state["recorder"], "tool"):
             if decision.tool is None:
                 result = ToolResult(tool="none", status="NO_TOOL", message="no approved tool fits this question")
             else:
@@ -91,11 +91,11 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
         return {"tools": [result]}
 
     def generate(state: AgentState) -> dict:
-        with state["recorder"].stage("generate"):
+        with run_stage(state["recorder"], "generate", "answer"):
             return _generate(state, llm)
 
     def validate(state: AgentState) -> dict:
-        with state["recorder"].stage("validate") as stage:
+        with run_stage(state["recorder"], "validate") as stage:
             result = _validate(state)
             conflicts = state.get("conflicts", [])
             answer = result.get("answer") or state.get("answer")
