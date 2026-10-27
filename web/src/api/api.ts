@@ -1,6 +1,4 @@
-import type { Credentials } from './client'
 import type {
-  AuthMe,
   ConfigId,
   DocumentDetail,
   DocumentRow,
@@ -30,8 +28,6 @@ import type {
 /** One method per endpoint of contract 05. The real and the mock version both implement it. */
 export interface Api {
   health(): Promise<Health>
-  /** GET /auth/me. With `creds`, checks them; without, uses the saved login. 401 when a login is needed. */
-  authMe(creds?: Credentials): Promise<AuthMe>
 
   query(req: QueryRequest, signal?: AbortSignal): Promise<QueryResponse>
   /** Calls onEvent for each SSE event. Resolves with the final QueryResponse from the done event. */

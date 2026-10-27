@@ -1,5 +1,5 @@
 import type { Api } from './api'
-import { ApiError, authHeader, buildUrl, request, toApiError } from './client'
+import { ApiError, buildUrl, request, toApiError } from './client'
 import { toDocumentDetail, toDocumentRow, toJob, toLibraryDocument, toLibraryPage, toPageDetail } from './normalize'
 import { createSseParser } from './sse'
 import type { QueryResponse } from './types'
@@ -10,14 +10,13 @@ const enc = encodeURIComponent
 
 export const httpApi: Api = {
   health: () => request('GET', '/health'),
-  authMe: (creds) => request('GET', '/auth/me', { credentials: creds }),
 
   query: (req, signal) => request('POST', '/query', { body: req, signal }),
 
   async queryStream(req, onEvent, signal) {
     const res = await fetch(buildUrl('/query/stream'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...authHeader() },
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify(req),
       signal,
     })

@@ -1,6 +1,5 @@
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { saveCredentials } from '../api/client'
 import { mockApi, resetMockStore } from '../api/mock/mockApi'
 import { FALLBACK_TEXT } from '../api/mock/scenarios'
 import type { QueryResponse } from '../api/types'
@@ -18,7 +17,6 @@ function turnOf(response: QueryResponse): Turn {
 
 beforeEach(() => {
   resetMockStore()
-  saveCredentials({ username: 'admin', password: 'admin' })
 })
 
 describe('ChatMessage', () => {

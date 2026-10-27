@@ -1,11 +1,8 @@
 import type { ApiErrorBody } from './types'
 
-// Thin fetch wrapper for contract 05: JSON bodies, the error envelope, X-Request-Id and HTTP basic auth.
+// Thin fetch wrapper for contract 05: JSON bodies, the error envelope and X-Request-Id.
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
-
-/** Sent when an admin call answers 401: the saved login is wrong or the server now asks for one. */
-export const UNAUTHORIZED_EVENT = 'ka:unauthorized'
 
 export class ApiError extends Error {
   readonly status: number
@@ -21,37 +18,6 @@ export class ApiError extends Error {
     this.fields = body.fields ?? []
     this.requestId = requestId
   }
-}
-
-const AUTH_KEY = 'ka.auth'
-
-export interface Credentials {
-  username: string
-  password: string
-}
-
-export function loadCredentials(): Credentials | null {
-  try {
-    const raw = sessionStorage.getItem(AUTH_KEY)
-    return raw ? (JSON.parse(raw) as Credentials) : null
-  } catch {
-    return null
-  }
-}
-
-export function saveCredentials(creds: Credentials | null): void {
-  try {
-    if (creds) sessionStorage.setItem(AUTH_KEY, JSON.stringify(creds))
-    else sessionStorage.removeItem(AUTH_KEY)
-  } catch {
-    // Storage can be blocked. The user then logs in again on reload.
-  }
-}
-
-export function authHeader(given?: Credentials | null): Record<string, string> {
-  const creds = given ?? loadCredentials()
-  if (!creds) return {}
-  return { Authorization: `Basic ${btoa(`${creds.username}:${creds.password}`)}` }
 }
 
 /** Turns a non-2xx response into an ApiError, also when the body is not the contract envelope. */
@@ -72,8 +38,6 @@ interface RequestOptions {
   form?: FormData
   query?: Record<string, string | number | boolean | undefined | null>
   signal?: AbortSignal
-  /** Use these instead of the saved login, for the login check itself. */
-  credentials?: Credentials
 }
 
 export function buildUrl(path: string, query?: RequestOptions['query']): string {
@@ -86,7 +50,7 @@ export function buildUrl(path: string, query?: RequestOptions['query']): string 
 }
 
 export async function request<T>(method: string, path: string, opts: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json', ...authHeader(opts.credentials) }
+  const headers: Record<string, string> = { Accept: 'application/json' }
   let body: BodyInit | undefined
   if (opts.form) {
     body = opts.form
@@ -103,14 +67,7 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
     throw new ApiError(0, { code: 'NETWORK_ERROR', message: 'The service is not reachable.' })
   }
 
-  if (!res.ok) {
-    const err = await toApiError(res)
-    if (err.status === 401 && !opts.credentials) {
-      saveCredentials(null)
-      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
-    }
-    throw err
-  }
+  if (!res.ok) throw await toApiError(res)
   if (res.status === 204) return undefined as T
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T
