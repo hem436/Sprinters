@@ -11,6 +11,9 @@ COPY backend/requirements.txt requirements.txt
 COPY model/requirements.txt model/requirements.txt
 COPY extraction/requirements.txt extraction/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt -r model/requirements.txt -r extraction/requirements.txt
+# the agent's reranker model (FlashRank MiniLM-L-12), fetched at build time: the first query must not download it
+ENV AGENT_RERANK_CACHE=/app/flashrank
+RUN python -c "from flashrank import Ranker; Ranker(model_name='ms-marco-MiniLM-L-12-v2', cache_dir='/app/flashrank')"
 
 COPY backend/app ./app
 COPY backend/config ./config

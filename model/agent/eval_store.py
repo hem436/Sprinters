@@ -119,7 +119,7 @@ def _run(agent, cases, config_id, db_path, new_recorder, out_dir, run_id, pause_
         if out_dir is not None:
             try:        # the files are a copy; the stored rows are the result, so a file error never fails the run
                 _write_files(out_dir, config_id, run, [c.id for c in cases])
-            except OSError:
+            except (OSError, ValueError, KeyError):     # cannot write, or an older summary file cannot be read
                 log.warning("eval run %s: the contract 07 files were not written to %s", run_id, out_dir, exc_info=True)
         _set_status(db_path, run_id, "DONE", run["summary"])
         log.info("eval run %s done: %s of %s passed", run_id, run["summary"]["passed"], run["summary"]["cases_total"])

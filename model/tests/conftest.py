@@ -31,7 +31,8 @@ def corpus() -> dict[str, Chunk]:
 class TableReranker:
     """A reranker with fixed scores per chunk text, so tests know the exact order."""
 
-    def __init__(self, scores_by_text_start: dict[str, float], default: float = 0.1):
+    # default: an unrelated chunk, under the 0.1 gate (MiniLM-L-12 scored unrelated questions 0.000 to 0.001)
+    def __init__(self, scores_by_text_start: dict[str, float], default: float = 0.01):
         self.scores = scores_by_text_start
         self.default = default
 

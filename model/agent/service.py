@@ -51,10 +51,10 @@ class SessionStore:
 
 class OneAtATime:
     """Calls the wrapped part one call at a time (review #25). The API answers users in a thread pool and the eval
-    runs in its own thread, all on one agent. Only the search is wrapped: the local Qdrant client is not documented
-    as thread safe, and its calls take milliseconds. The reranker is not wrapped: ONNX Runtime documents
-    InferenceSession.run as thread safe, and it is the slow part (about 0.6 s), so users must not queue behind it.
-    The lock is re-entrant, so a search method that calls another one cannot block itself (review #25)."""
+    runs in its own thread, all on one agent. The local Qdrant client is not documented as thread safe, and FlashRank's
+    tokenizer is not either (ONNX Runtime itself is), so both take turns (review #25, two rounds). Each has its own
+    lock: one user's search never waits for another user's rerank (about 0.6 s with MiniLM-L-12), and the model
+    calls (seconds) run in parallel. The locks are re-entrant, so a nested call cannot block itself."""
 
     def __init__(self, inner, lock):
         self._inner, self._lock = inner, lock
@@ -73,14 +73,14 @@ class OneAtATime:
 class Agent:
     def __init__(self, search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: RerankerPort,
                  cfg: AgentConfig | None = None, sessions: SessionStore | None = None,
-                 parts_lock=None):           # one threading.RLock shared with with_tools() copies
+                 parts_lock=None):           # (search lock, rerank lock), shared with with_tools() copies
         self.cfg = cfg or AgentConfig()
         self.sessions = sessions or SessionStore()
         self._parts = (search, llm, reranker)
-        self._parts_lock = parts_lock or threading.RLock()
-        self.search = OneAtATime(search, self._parts_lock)      # the eval runner reads chunks from search too
+        self._parts_lock = parts_lock or (threading.RLock(), threading.RLock())
+        self.search = OneAtATime(search, self._parts_lock[0])   # the eval runner reads chunks from search too
         self.tools = tools
-        self._graph = build_graph(self.search, tools, llm, reranker)
+        self._graph = build_graph(self.search, tools, llm, OneAtATime(reranker, self._parts_lock[1]))
 
     def with_tools(self, tools: ToolPort) -> "Agent":
         """The same agent with other tools. The eval's tool-failure cases use this, so the registry that serves real

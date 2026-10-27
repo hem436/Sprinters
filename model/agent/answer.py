@@ -85,8 +85,16 @@ def _evidence_tag(e: Evidence) -> str:
                 f'{_text(e.text)}</tool_result>')
     c = e.chunk
     return (f'<evidence id="{e.id}" doc="{_attr(c.title)}" version="{_attr(c.version)}" '
-            f'effective="{_attr(c.effective_date)}" page="{c.page}" section="{_attr(c.section)}">'
+            f'effective="{_attr(c.effective_date)}"{_current_attr(c)} page="{c.page}" section="{_attr(c.section)}">'
             f'{_text(e.text)}</evidence>')
+
+
+def _current_attr(c) -> str:
+    """current="yes" on the newest version of a document, "no" on an older one (CHANGES DC-4); empty when unknown."""
+    current = getattr(c, "current", None)
+    if current is None:
+        return ""
+    return ' current="yes"' if current else ' current="no"'
 
 
 def _attr(value: str) -> str:

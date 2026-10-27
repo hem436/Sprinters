@@ -18,7 +18,10 @@ class AgentConfig:
     ret_rerank_top_n: int = 5
 
     # 04 G1 and 11 section 6: relevance and grounding thresholds
-    obs_relevance_min: float = 0.3          # top rerank score below this means "no relevant evidence"
+    # top rerank score below this means "no relevant evidence". 0.1 is measured for the MiniLM-L-12 reranker on the
+    # demo corpus (27 Oct): the lowest answerable top score was 0.144, unanswerable ones 0.000 to 0.001. It was 0.3
+    # for TinyBERT; remeasure whenever the reranker or the corpus changes (review #25)
+    obs_relevance_min: float = 0.1          # MiniLM-L-12, measured
     obs_relevance_min_vector: float = 0.6   # the same for config A, which has only cosine scores
     obs_relevance_high: float = 0.7         # confidence HIGH (rerank score)
     obs_relevance_high_vector: float = 0.8  # confidence HIGH (cosine score, config A)

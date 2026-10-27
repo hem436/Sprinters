@@ -32,11 +32,12 @@ _DOC_WORDS = re.compile(r"\b(policy|policies|rule|procedure|sop|guideline|says?|
 _GREETING = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|good (morning|afternoon|evening))\b[\s!.?]*$", re.I)
 # R1: the only questions the planner may call small talk. "Who is the CEO of Arka Fintech?" is a question about the
 # company: it must search the documents and say "could not find", not greet (FR-07, FR-10). The whole message must
-# be the phrase, with at most a fixed polite tail: "thanks, what about Q2?" and "help with leave rules" are
-# questions (review #25).
-_SMALLTALK = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|ok(ay)?|bye|goodbye|good (morning|afternoon|evening)|"
-                        r"who are you|what can you do|how are you|what do you do|help)"
-                        r"([\s,]+(there|so much|a lot|again|that helps|got it|great))?[\s!.?]*$", re.I)
+# be polite phrases only: "Hi, how are you?", "ok thanks" and "thank you very much!" are small talk; "thanks, what
+# about Q2?" and "help with leave rules" are questions (review #25, two rounds).
+_POLITE = (r"hi|hello|hey|thanks|thank you|ok(ay)?|bye|goodbye|good (morning|afternoon|evening)|who are you|"
+           r"what can you do|how are you|what do you do|help|there|so much|very much|a lot|again|that helps|got it|"
+           r"great|cool|nice|perfect|alright")
+_SMALLTALK = re.compile(rf"^(\s*({_POLITE})\b[\s,!.?]*)+$", re.I)
 
 
 def rule_signals(question: str) -> tuple[bool, bool]:
@@ -78,6 +79,11 @@ def parse_planner(text: str, question: str) -> RouteDecision:
         return RouteDecision("DOCS", question, reason="ROUTE_FALLBACK")
 
 
+def planner_system(catalogue: list[dict]) -> str:
+    """The planner's system prompt with the approved tools listed (route-v1)."""
+    return _PROMPT.replace("{tools}", json.dumps(catalogue, indent=1))
+
+
 FORCE_DATA_NOTE = ("\n\nThe question needs business data. Reply with route {route}, the one tool that fits and its "
                    "arguments, or \"tool\": null if no tool fits.")
 FIX_ARGS_NOTE = ("\n\nThe tool {tool} refused these arguments: {args}. The reason: {message}. Reply with route {route}, "
@@ -90,7 +96,7 @@ def fix_tool_args(question: str, context: list[Turn], decision: RouteDecision, m
     more, with the tool's own message ("metric: Input should be 'segment_revenue'"). Returns the corrected decision,
     or None when the planner changes nothing, picks another tool, or fails; then the first result stands."""
     catalogue = tools.list_tools()
-    system = _PROMPT.replace("{tools}", json.dumps(catalogue, indent=1))
+    system = planner_system(catalogue)
     note = FIX_ARGS_NOTE.format(tool=decision.tool, args=json.dumps(decision.tool_args), message=message[:300],
                                 route=decision.route)
     try:
@@ -115,7 +121,7 @@ def route_question(question: str, context: list[Turn], llm: LLMPort, tools: Tool
         return RouteDecision("CONVERSATIONAL", question, reason="RULE_GREETING"), []
     catalogue = tools.list_tools()
     approved = {t["name"] for t in catalogue}
-    system = _PROMPT.replace("{tools}", json.dumps(catalogue, indent=1))
+    system = planner_system(catalogue)
     user = _planner_input(question, context)
     replies = [llm.complete(system, user, purpose="route")]
     planner = only_approved(parse_planner(replies[0].text, question), approved)
@@ -137,7 +143,7 @@ def route_question(question: str, context: list[Turn], llm: LLMPort, tools: Tool
 def only_real_smalltalk(decision: RouteDecision, question: str) -> RouteDecision:
     """R1: the planner's CONVERSATIONAL stands only for real small talk; any other question searches the documents,
     so a question we cannot answer gets the honest "could not find" (G1), never a greeting."""
-    if decision.route != "CONVERSATIONAL" or _SMALLTALK.match(question):
+    if decision.route != "CONVERSATIONAL" or (len(question) <= 60 and _SMALLTALK.match(question)):
         return decision
     return RouteDecision("DOCS", decision.standalone_query or question, reason="RULE_OVERRIDE")
 
