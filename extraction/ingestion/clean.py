@@ -34,8 +34,19 @@ def printed_page_number(line: str) -> str | None:
 FUZZY_MAX_WORDS = 6    # "Page 3 of 10", "Annual Report 2024-25 | 12": short lines whose numbers change per page
 
 
+_EDGE_NUMBER = re.compile(r"^\s*(\d{1,4})\s*[|·•–-]?\s+(?=\S)|(?<=\S)\s+[|·•–-]?\s*(\d{1,4})\s*$")
+
+
+def edge_number(line: str) -> str | None:
+    """The page number printed at the start or end of a header or footer line ("Annual Report | 12"), if any."""
+    m = _EDGE_NUMBER.search(normalise(line))
+    return (m.group(1) or m.group(2)) if m else None
+
+
 def exact_key(line: str) -> str:
-    return normalise(line).lower()
+    """The line without a page number at its start or end: "Annual Report 2024-25 | ₹ crore | 12" has the same key
+    on every page, at any length; a number inside the line ("Section 3 Travel rules") still makes it different."""
+    return _EDGE_NUMBER.sub("", normalise(line)).lower().strip() or normalise(line).lower()
 
 
 def repeated_edge_lines(pages: list[list[str]], ratio: float) -> tuple[set[str], set[str]]:
@@ -51,7 +62,7 @@ def repeated_edge_lines(pages: list[list[str]], ratio: float) -> tuple[set[str],
     fuzzy: Counter[str] = Counter()
     for lines in pages:
         zone = [x for x in lines[:EDGE_LINES] + lines[-EDGE_LINES:] if x.strip()]
-        exact.update({exact_key(x) for x in zone})
+        exact.update({exact_key(x) for x in zone} | {normalise(x).lower() for x in zone})
         fuzzy.update({line_key(x) for x in zone if len(x.split()) <= FUZZY_MAX_WORDS})
     limit = ratio * len(pages)
     return {k for k, n in exact.items() if n > limit}, {k for k, n in fuzzy.items() if n > limit}
@@ -65,10 +76,10 @@ def is_edge_noise(line: str, index: int, total: int, repeated: tuple[set[str], s
     if not in_zone:
         return False
     exact, fuzzy = repeated
+    if is_heading:
+        return normalise(line).lower() in exact or exact_key(line) in exact and edge_number(line) is None
     if exact_key(line) in exact:
         return True
-    if is_heading:
-        return False
     if len(line.split()) <= FUZZY_MAX_WORDS and line_key(line) in fuzzy:
         return True
     return printed_page_number(line) is not None

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../../api'
 import type { Citation, ConfigId, QueryFilters, QueryResponse } from '../../api/types'
 import { useSession } from '../../hooks/useSession'
@@ -25,7 +26,9 @@ export function ChatPage() {
   const { sessionId, reset } = useSession()
   const [turns, setTurns] = useState<Turn[]>([])
   const [question, setQuestion] = useState('')
-  const [filters, setFilters] = useState<QueryFilters>({})
+  const [params] = useSearchParams()
+  // "Ask about this document" on the Documents page opens the chat with that document as a filter.
+  const [filters, setFilters] = useState<QueryFilters>(() => (params.get('doc_key') ? { doc_key: params.get('doc_key') ?? undefined } : {}))
   const [configId, setConfigId] = useState<ConfigId>('B')
   const [stream, setStream] = useState(true)
   const [tab, setTab] = useState<Tab>('chat')

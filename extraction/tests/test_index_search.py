@@ -1,5 +1,6 @@
 """WP-EX5: X9 indexes and the search interface the agent uses (Arka's SearchPort)."""
 import dataclasses
+from pathlib import Path
 
 import pytest
 
@@ -91,17 +92,31 @@ def test_filters_on_category_doc_key_and_version(tmp_path, k):
     assert len(s.vector_search("per diem", 5, {"doc_key": "travel-and-expense-policy"})) == 2
 
 
+def _agent_fields(name: str) -> list[str] | None:
+    """Field names of Arka's dataclass in model/agent/types.py, read from the source (no import of the agent)."""
+    import ast
+
+    src = Path(__file__).resolve().parents[2] / "model" / "agent" / "types.py"
+    if not src.exists():
+        return None
+    for node in ast.parse(src.read_text()).body:
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            return [n.target.id for n in node.body if isinstance(n, ast.AnnAssign)]
+    return None
+
+
 def test_hits_and_chunks_match_the_agent_types(tmp_path, k):
-    """Same field names as model/agent/types.py (Hit, Chunk), so the agent can use them without a converter."""
+    """Same fields, in the same order, as model/agent/types.py (Hit, Chunk), so the agent uses our objects as they are."""
     doc_id = k.submit_document(files.table_pdf(tmp_path / "t.pdf"), META)["document_id"]
     s = SearchService(k)
     hit = s.vector_search("revenue from operations", 3)[0]
-    assert [f.name for f in dataclasses.fields(hit)] == ["chunk_id", "score", "rank"]
     chunk = s.get_chunks([hit.chunk_id])[0]
-    assert [f.name for f in dataclasses.fields(chunk)] == [
-        "chunk_id", "document_id", "doc_key", "title", "version", "effective_date", "page", "section", "method",
-        "text", "injection_suspect", "current"]
-    assert chunk.document_id == doc_id and chunk.page == 1
+    for ours, name in ((hit, "Hit"), (chunk, "Chunk")):
+        theirs = _agent_fields(name)
+        if theirs is None:
+            pytest.skip("model/agent/types.py not in this checkout")
+        assert [f.name for f in dataclasses.fields(ours)] == theirs
+    assert chunk.document_id == doc_id and chunk.page == 1 and chunk.current is True
 
 
 def test_delete_removes_chunks_keeps_row(tmp_path, k):

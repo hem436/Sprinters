@@ -1,31 +1,40 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { ADMIN_LOGIN, loadCredentials, saveCredentials, type Credentials } from '../api/client'
+import { checkLogin, currentSession, endSession, loginRequired, type Credentials } from '../lib/adminAuth'
 
-// Admin and reviewer pages use HTTP basic auth (contract 01 section 7). The server checks every call.
-// This context only decides what the page shows.
+// Admin login in the web app only (lib/adminAuth.ts). It decides what the page shows; the API stays open.
 
 interface AuthState {
   user: string | null
-  /** True when admin pages may open: always without a login, else once logged in. */
+  /** True when admin pages may open: no login is set up, or the admin is logged in. */
   canAdmin: boolean
+  /** True when an admin password is set up. */
   loginEnabled: boolean
-  login: (creds: Credentials) => void
+  /** Returns false when the user name or password is wrong, or while too many wrong tries lock the form. */
+  login: (creds: Credentials) => boolean
   logout: () => void
 }
 
 const AuthContext = createContext<AuthState | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<string | null>(() => loadCredentials()?.username ?? null)
+  const [user, setUser] = useState<string | null>(() => currentSession())
+  const loginEnabled = loginRequired()
+
   const login = useCallback((creds: Credentials) => {
-    saveCredentials(creds)
-    setUser(creds.username)
+    const ok = checkLogin(creds)
+    if (ok) setUser(currentSession() ?? creds.username.trim())
+    return ok
   }, [])
+
   const logout = useCallback(() => {
-    saveCredentials(null)
+    endSession()
     setUser(null)
   }, [])
-  const value = useMemo(() => ({ user, canAdmin: !ADMIN_LOGIN || !!user, loginEnabled: ADMIN_LOGIN, login, logout }), [user, login, logout])
+
+  const value = useMemo(
+    () => ({ user, canAdmin: !loginEnabled || user !== null, loginEnabled, login, logout }),
+    [user, loginEnabled, login, logout],
+  )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

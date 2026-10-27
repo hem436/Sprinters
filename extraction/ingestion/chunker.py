@@ -118,6 +118,9 @@ def _split_long(block: Block, cfg: ExtractConfig) -> list[Block]:
     pieces, cur = [], ""
     for part in parts:
         if tokens(part) > cfg.chunk_max_tokens:          # one huge sentence: cut by words
+            if cur:                                      # what came before it goes first (review B2)
+                pieces.append(cur)
+                cur = ""
             words = part.split()
             step = max(1, cfg.chunk_target_tokens * 4 // 6)
             for i in range(0, len(words), step):

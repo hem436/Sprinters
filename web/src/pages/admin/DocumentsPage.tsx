@@ -3,8 +3,8 @@ import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import type { UploadMetadata } from '../../api/types'
+import { OcrUsage } from '../../components/OcrUsage'
 import { Card, ErrorBanner, PageHeader, Spinner, StatusBadge, Table } from '../../components/ui'
-import { formatCost } from '../../lib/format'
 import { ALLOWED_EXTENSIONS, checkUpload, MAX_UPLOAD_MB, type UploadProblem } from '../../lib/upload'
 
 const CATEGORIES = ['Policy', 'SOP', 'HR', 'Procurement', 'Finance']
@@ -81,7 +81,7 @@ export function DocumentsPage() {
         {docs.isLoading ? (
           <Spinner />
         ) : (
-          <Table head={['Title', 'Key', 'Category', 'Version', 'Effective', 'Status', 'Pages', 'Chunks', 'OCR cost']} empty={!docs.data?.length}>
+          <Table head={['Title', 'Key', 'Category', 'Version', 'Effective', 'Status', 'Pages', 'Chunks', 'OCR tokens and cost']} empty={!docs.data?.length}>
             {docs.data?.map((d) => (
               <tr key={d.document_id}>
                 <td className="td">
@@ -96,7 +96,9 @@ export function DocumentsPage() {
                 <td className="td"><StatusBadge status={d.status} /></td>
                 <td className="td tabular-nums">{d.pages}</td>
                 <td className="td tabular-nums">{d.chunks}</td>
-                <td className={`td tabular-nums ${d.ocr_cost_usd === null ? 'italic text-slate-400' : ''}`}>{formatCost(d.ocr_cost_usd)}</td>
+                <td className="td tabular-nums">
+                  <OcrUsage doc={d} />
+                </td>
               </tr>
             ))}
           </Table>

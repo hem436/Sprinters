@@ -26,11 +26,12 @@ class JobQueue:
         self._lock = threading.Lock()
         self._executor = None if inline else ThreadPoolExecutor(max_workers=1, thread_name_prefix="ingest")
 
-    def submit(self, document_id: str, file_name: str, work: Callable[[Callable], None]) -> str:
+    def submit(self, document_id: str, file_name: str, work: Callable[[Callable], None], title: str = "") -> str:
         """`work(progress)` does the job; `progress(stage, done, total)` updates the job record."""
         job_id = "job_" + uuid.uuid4().hex[:10]
         with self._lock:
             self._jobs[job_id] = {"job_id": job_id, "document_id": document_id, "file_name": file_name,
+                                  "title": title or file_name,
                                   "status": "QUEUED", "stage": "queued", "done": 0, "total": 0, "detail": None,
                                   "created_at": now(), "finished_at": None}
             self._prune()

@@ -160,6 +160,9 @@ export interface QueryListRow {
   reason_code: ReasonCode
   latency_ms: number
   cost_usd: Money
+  /** Not yet sent by GET /queries on sinngam/backend; the table then shows cost. */
+  tokens_in?: number
+  tokens_out?: number
   feedback: 'HELPFUL' | 'NOT_HELPFUL' | null
 }
 
@@ -233,6 +236,9 @@ export interface EvalCaseResult {
   grounding_score: number | null
   latency_ms: number
   cost_usd: Money
+  /** Contract 07 lists them; present when the runner stores them. */
+  tokens_in?: number
+  tokens_out?: number
 }
 
 export interface EvalRun {
@@ -367,3 +373,23 @@ export interface Health {
 }
 
 export type ReviewDecision = 'APPROVE' | 'REJECT'
+
+/** GET /library: a document users may read (searchable, not waiting for review). */
+export interface LibraryDocument {
+  document_id: string
+  doc_key: string
+  title: string
+  category: string
+  version: string
+  effective_date: string
+  pages: number
+}
+
+/** GET /library/{id}/pages/{n}: the text of one approved page. */
+export interface LibraryPage {
+  document_id: string
+  title: string
+  version: string
+  page: number
+  text: string
+}

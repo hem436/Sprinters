@@ -96,6 +96,7 @@ def parse_markdown_table(lines: list[str]) -> list[list[str]]:
         if _SEPARATOR.match(s):
             continue
         s = s.strip("|")
-        cells = [c.strip() for c in re.split(r"(?<!\\)\|", s)]
+        # unescape "\\|": clean_cell escapes a pipe once when the table is written again (review B7)
+        cells = [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", s)]
         rows.append(cells)
     return rows

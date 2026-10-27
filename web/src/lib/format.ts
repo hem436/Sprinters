@@ -27,6 +27,12 @@ export function formatNumber(n: number): string {
   return new Intl.NumberFormat('en-IN').format(n)
 }
 
+/** "2,506 tokens"; with in and out, "2,506 tokens (2,410 in · 96 out)" when `detail` is set. */
+export function formatTokens(tokensIn: number, tokensOut: number, detail = false): string {
+  const total = `${formatNumber(tokensIn + tokensOut)} tokens`
+  return detail ? `${total} (${formatNumber(tokensIn)} in · ${formatNumber(tokensOut)} out)` : total
+}
+
 export function formatTs(ts: string): string {
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return ts

@@ -8,6 +8,8 @@ import type {
   FinTable,
   Health,
   Job,
+  LibraryDocument,
+  LibraryPage,
   MetricMapRow,
   MetricsFilters,
   MetricsSummary,
@@ -55,6 +57,10 @@ export interface Api {
   reviewTable(tableId: string, decision: ReviewDecision, comment?: string): Promise<FinTable>
   listMetricMap(pending?: boolean): Promise<MetricMapRow[]>
   approveMapping(lineLabel: string, metric: string): Promise<MetricMapRow>
+
+  listLibrary(category?: string): Promise<LibraryDocument[]>
+  /** 404 when the page is not in the library, for example while it waits for review. */
+  getLibraryPage(documentId: string, page: number): Promise<LibraryPage>
 
   listTools(): Promise<ToolInfo[]>
   tryTool(name: string, args: Record<string, unknown>): Promise<ToolTryResult>

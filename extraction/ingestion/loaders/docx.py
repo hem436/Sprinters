@@ -65,8 +65,7 @@ def extract_docx(path: Path | str, progress=None) -> list[PageResult]:
     for el in _iter_body(document):
         if el.__class__.__name__ == "Table":
             flush_items()
-            rows = [[cell.text for cell in row.cells] for row in el.rows]
-            rows = [_dedupe_merged(r) for r in rows]
+            rows = [_row_cells(row) for row in el.rows]
             caption = ""
             if current.blocks and current.blocks[-1].type == "paragraph" and len(current.blocks[-1].text) <= 160:
                 caption = current.blocks.pop().text
@@ -101,9 +100,11 @@ def extract_docx(path: Path | str, progress=None) -> list[PageResult]:
     return units
 
 
-def _dedupe_merged(cells: list[str]) -> list[str]:
-    """python-docx repeats the text of a horizontally merged cell in every grid column; keep it once."""
-    out = []
-    for i, c in enumerate(cells):
-        out.append("" if i and c == cells[i - 1] and c else c)
+def _row_cells(row) -> list[str]:
+    """One text per grid column. A horizontally merged cell appears once per column it spans, as the same XML cell
+    (`_tc`); only that repeat is blanked, never two real cells with equal text such as `12, 12` (review B3)."""
+    out, prev = [], None
+    for cell in row.cells:
+        out.append("" if prev is not None and cell._tc is prev else cell.text)
+        prev = cell._tc
     return out

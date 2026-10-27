@@ -67,7 +67,7 @@ def test_newest_report_wins_and_restated(tmp_path, k):
     assert fy24["value_num"] == 10_050 * CRORE and fy24["restated"] == 1
     assert (fy24["prev_value_printed"], fy24["prev_report_id"]) == ("10,000.00", "R-CA-24")
     assert _view(k, metric="revenue", period="FY2024-25")[0]["restated"] == 0
-    restated = [c for c in k.list_tables(d25)[0]["checks"] if c["check"] == "RESTATED"]
+    restated = [c for c in k.list_tables(d25)[0]["checks"] if c["name"] == "RESTATED"]
     assert restated and restated[0]["items"][0]["other_printed"] == "10,000.00"
     # growth in SQL with the newest values: (11,256 - 10,050) / 10,050 = 12.0 %
     growth = k.store.query(
@@ -131,7 +131,7 @@ def test_unmapped_label_not_used_until_approved(tmp_path, k):
     doc = _upload(k, files.fin_pdf(tmp_path / "u.pdf", rows=rows), "FY2024-25", "2025-06-01")
     t = k.list_tables(doc)[0]
     assert t["status"] == "NEEDS_REVIEW"
-    assert next(c for c in t["checks"] if c["check"] == "UNMAPPED")["labels"] == ["Total income from operations"]
+    assert next(c for c in t["checks"] if c["name"] == "UNMAPPED")["labels"] == ["Total income from operations"]
     assert _view(k, metric="revenue") == []
     pending = k.list_metric_map(pending=True)
     assert {"line_label": "total income from operations", "metric": "revenue", "proposed_by": "LLM",
@@ -139,8 +139,10 @@ def test_unmapped_label_not_used_until_approved(tmp_path, k):
     # a person approves the mapping, then the table
     out = k.approve_mapping("Total income from operations", "revenue", admin="myank")
     assert out["facts_updated"] == 2
-    assert not any(c["check"] == "UNMAPPED" for c in k.list_tables(doc)[0]["checks"])
-    k.review_table(t["table_id"], "APPROVE", admin="myank")
+    # the label was the table's only open check, so the table is approved by the checks (review D4)
+    assert out["tables_approved"] == [t["table_id"]]
+    after = k.list_tables(doc)[0]
+    assert after["status"] == "APPROVED" and not any(c["name"] == "UNMAPPED" for c in after["checks"])
     assert [r["value_printed"] for r in _view(k, metric="revenue")] == ["10,050.00", "11,256.00"]
     assert k.list_metric_map(pending=True) == []
     # the next report with that label is mapped at once
@@ -188,7 +190,7 @@ def test_unruled_table_goes_to_vision_and_review(tmp_path, k):
     assert k.table_reader.calls == 1
     t = k.list_tables(doc)[0]
     assert (t["source"], t["basis"], t["status"]) == ("vision", "STANDALONE", "NEEDS_REVIEW")
-    assert any(c["check"] == "OCR_SOURCE" for c in t["checks"])
+    assert any(c["name"] == "OCR_SOURCE" for c in t["checks"])
     report = k.get_report(doc)
     assert report["financial"]["vision_pages"] == 1 and report["ocr_cost_usd"] == "0.0003"
 

@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS fin_table (
   basis         TEXT NOT NULL CHECK (basis IN ('CONSOLIDATED','STANDALONE')),
   currency      TEXT NOT NULL DEFAULT 'INR',
   scale         INTEGER NOT NULL,                 -- 1, 1000, 100000, 1000000, 10000000
+  unit_percent  INTEGER NOT NULL DEFAULT 0,       -- 1 when the table is in % (from the unit line or a header)
   unit_printed  TEXT NOT NULL DEFAULT '',
   caption       TEXT NOT NULL DEFAULT '',
   source        TEXT NOT NULL DEFAULT 'text',     -- text (pdfplumber), ocr (page OCR), vision (table vision call)
@@ -44,7 +45,7 @@ CREATE TABLE IF NOT EXISTS fin_fact (
   metric        TEXT NOT NULL DEFAULT '',         -- empty until mapped (F6); no tool uses an empty metric
   segment       TEXT NOT NULL DEFAULT '',
   line_label    TEXT NOT NULL,                    -- as printed
-  label_norm    TEXT NOT NULL,                    -- normalised, the key of metric_map
+  label_norm    TEXT NOT NULL DEFAULT '',         -- normalised, the key of metric_map (other writers may omit it)
   value_kind    TEXT NOT NULL CHECK (value_kind IN ('AMOUNT','PERCENT','COUNT','PER_SHARE')),
   value_num     INTEGER NOT NULL,                 -- base unit: rupees, basis points, count, paise per share
   value_printed TEXT NOT NULL,
@@ -64,7 +65,8 @@ CREATE TABLE IF NOT EXISTS metric_map (
 );
 
 -- Only APPROVED tables and mapped metrics. For each company, metric, period, basis and segment the newest report
--- wins; restated = 1 when reports disagree, with the older value for the "was ..." text and its citation.
+-- wins. restated = 1 only when ANOTHER report gives a different value (a number printed twice in one report, in two
+-- of its tables, is not a restatement: review D3); prev_* give the newest such other value, for the "was ..." text.
 CREATE VIEW IF NOT EXISTS v_fact_current AS
 WITH usable AS (
   SELECT f.*, r.published_on
@@ -74,25 +76,25 @@ WITH usable AS (
   WHERE t.status = 'APPROVED' AND f.metric != ''
 ),
 ranked AS (
-  SELECT u.*,
-    ROW_NUMBER() OVER w AS rn,
-    MIN(value_num) OVER p AS min_value,
-    MAX(value_num) OVER p AS max_value,
-    LEAD(value_num) OVER w AS prev_value_num,
-    LEAD(value_printed) OVER w AS prev_value_printed,
-    LEAD(report_id) OVER w AS prev_report_id,
-    LEAD(page) OVER w AS prev_page
+  SELECT u.*, ROW_NUMBER() OVER (PARTITION BY company, metric, period, basis, segment
+                                 ORDER BY published_on DESC, report_id DESC, table_id, row_no) AS rn
   FROM usable u
-  WINDOW p AS (PARTITION BY company, metric, period, basis, segment),
-         w AS (PARTITION BY company, metric, period, basis, segment ORDER BY published_on DESC, report_id DESC)
-)
-SELECT fact_id, table_id, report_id, company, period, basis, metric, segment, line_label, value_kind, value_num,
-       value_printed, page, row_no, col_no, published_on,
-       CASE WHEN min_value != max_value THEN 1 ELSE 0 END AS restated,
-       CASE WHEN min_value != max_value THEN prev_value_num END AS prev_value_num,
-       CASE WHEN min_value != max_value THEN prev_value_printed END AS prev_value_printed,
-       CASE WHEN min_value != max_value THEN prev_report_id END AS prev_report_id,
-       CASE WHEN min_value != max_value THEN prev_page END AS prev_page
-FROM ranked
-WHERE rn = 1;
+),
+newest AS (SELECT * FROM ranked WHERE rn = 1)
+SELECT n.fact_id, n.table_id, n.report_id, n.company, n.period, n.basis, n.metric, n.segment, n.line_label,
+       n.value_kind, n.value_num, n.value_printed, n.page, n.row_no, n.col_no, n.published_on,
+       CASE WHEN o.fact_id IS NULL THEN 0 ELSE 1 END AS restated,
+       o.value_num AS prev_value_num, o.value_printed AS prev_value_printed,
+       o.report_id AS prev_report_id, o.page AS prev_page
+FROM newest n
+LEFT JOIN ranked o ON o.fact_id = (
+  SELECT x.fact_id FROM usable x
+  WHERE x.company = n.company AND x.metric = n.metric AND x.period = n.period AND x.basis = n.basis
+    AND x.segment = n.segment AND x.report_id != n.report_id AND x.value_num != n.value_num
+  ORDER BY x.published_on DESC, x.report_id DESC LIMIT 1);
 """
+
+# columns added after the first release; KnowledgeStore adds them to an older knowledge.db
+MIGRATIONS = [
+    ("fin_table", "unit_percent", "INTEGER NOT NULL DEFAULT 0"),
+]
