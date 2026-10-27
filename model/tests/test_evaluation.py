@@ -21,7 +21,7 @@ WEB_FIELDS = {"case_id", "scenario", "query_id", "route", "expected_route", "out
 def test_eval_set_file_is_valid():
     cases = load_cases(EVAL_SET)
     per_scenario = Counter(c.scenario for c in cases)
-    assert len(cases) == 28
+    assert len(cases) == 29
     assert all(n >= 2 for s, n in per_scenario.items() if s != "small_talk")
     assert {c.id for c in cases if c.regression} == {"D01", "X01", "S01"}
     for c in cases:
