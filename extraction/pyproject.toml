@@ -1,0 +1,21 @@
+[project]
+name = "extraction"
+version = "0.1.0"
+description = "P1 extraction and indexing (contracts 10 and 14)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "live: calls a real model over the network (needs GEMINI_API_KEY); skipped by default",
+]
+addopts = "-m 'not live'"
+
+[tool.ruff]
+line-length = 125
+target-version = "py311"
+exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

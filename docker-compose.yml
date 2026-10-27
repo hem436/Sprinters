@@ -1,0 +1,38 @@
+# One command start (contract 08): docker compose up
+# The web service waits for Hemant's web/ folder; start it with: docker compose --profile web up
+services:
+  api:
+    build:
+      context: .            # repo root: the image also holds the agent (model/)
+      dockerfile: backend/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP__QDRANT__URL: http://qdrant:6333
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/app/data
+    depends_on:
+      qdrant:
+        condition: service_started
+
+  qdrant:
+    # Local container so the demo does not depend on Qdrant Cloud (contract 08).
+    image: qdrant/qdrant:v1.12.5
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+  web:
+    profiles: ["web"]
+    build: ./web
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  qdrant-data:
