@@ -17,6 +17,7 @@ import csv
 import io
 import random
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -41,6 +42,7 @@ from reportlab.platypus import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+FIXED_DATE = datetime(2026, 10, 27, 12, 0, 0)        # fixed file dates, so a re-run changes no bytes
 DOCS = ROOT / "demo" / "documents"
 GOLD = ROOT / "evals" / "extraction_gold"
 W, H = A4
@@ -128,7 +130,8 @@ def write_pdf(path: Path, pages: list[list[tuple]], header: str | None = None, f
         canvas.restoreState()
 
     doc = BaseDocTemplate(str(path), pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=22 * mm,
-                          bottomMargin=20 * mm, title=path.stem, author="demo generator")
+                          bottomMargin=20 * mm, title=path.stem, author="demo generator",
+                          invariant=1)          # no creation date or random id: the same input gives the same bytes
     one = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="one")
     gap = 10 * mm
     col = (doc.width - gap) / 2
@@ -158,7 +161,8 @@ def scan(pdf: Path, out: Path, seed: int, dpi: int = 150) -> None:
         img.save(buf, "JPEG", quality=72)
         images.append(Image.open(io.BytesIO(buf.getvalue())).convert("L"))
     doc.close()
-    images[0].save(str(out), "PDF", save_all=True, append_images=images[1:], resolution=dpi)
+    images[0].save(str(out), "PDF", save_all=True, append_images=images[1:], resolution=dpi,
+                   creationDate=FIXED_DATE.timetuple(), modDate=FIXED_DATE.timetuple())
 
 
 def handwritten(lines: list[str], out: Path, seed: int, exif_rotated: bool = False) -> None:
@@ -430,6 +434,8 @@ def main() -> None:
         else:
             d.add_paragraph(rest[0])
     d.core_properties.author = "demo generator"
+    d.core_properties.created = d.core_properties.modified = FIXED_DATE
+    d.core_properties.last_modified_by = "demo generator"
     d.save(str(DOCS / "it-security-sop.docx"))
     (DOCS / "onboarding-faq.txt").write_text(FAQ, encoding="utf-8")
 
@@ -441,6 +447,8 @@ def main() -> None:
         f.unlink()
     tmp.rmdir()
 
+    # each annual report has its own doc_key: a new year's report is not a new version of last year's (no SUPERSEDED,
+    # no false C1 conflict); restated numbers are handled by the facts view (contract 14 section 5)
     manifest = [
         {"file": "travel-policy-v1-scanned.pdf", "title": "Travel and Expense Policy", "category": "HR policy",
          "version": "1.0", "effective_date": "2025-04-01", "doc_key": "travel-and-expense-policy"},
@@ -456,11 +464,11 @@ def main() -> None:
          "version": "1.0", "effective_date": "2026-10-19"},
         {"file": "company-a-annual-report-fy2023-24.pdf", "title": "Company A Annual Report FY2023-24",
          "category": "Financial report", "version": "FY2023-24", "effective_date": "2024-06-01",
-         "doc_key": "company-a-annual-report", "company": "Company A", "report_type": "ANNUAL",
+         "doc_key": "company-a-annual-report-fy2023-24", "company": "Company A", "report_type": "ANNUAL",
          "fiscal_year": "FY2023-24"},
         {"file": "company-a-annual-report-fy2024-25.pdf", "title": "Company A Annual Report FY2024-25",
          "category": "Financial report", "version": "FY2024-25", "effective_date": "2025-06-01",
-         "doc_key": "company-a-annual-report", "company": "Company A", "report_type": "ANNUAL",
+         "doc_key": "company-a-annual-report-fy2024-25", "company": "Company A", "report_type": "ANNUAL",
          "fiscal_year": "FY2024-25"},
         # the scan of the P&L page is for the gold set and the review demo; no company, so it adds no facts
         {"file": "company-a-pl-scanned.pdf", "title": "Company A P&L FY2024-25 (scanned copy)",
@@ -475,7 +483,8 @@ def main() -> None:
     write_gold("ar25_p1_mdna", page_gold(MDNA))
     write_gold("ar25_p2_pl_text", page_gold(ar25[1]), [PL_HEADER, *PL_CONSOLIDATED])
     write_gold("pl_scanned_p1", page_gold(ar25[1]), [PL_HEADER, *PL_CONSOLIDATED])
-    write_gold("policy_v1_scanned_p2", page_gold(p1[1], header, "Page 2 of 3"), p1[1][5][1])
+    # the running header and footer are removed from OCR pages too (X4 step 2), so no gold page has them
+    write_gold("policy_v1_scanned_p2", page_gold(p1[1]), p1[1][5][1])
     write_gold("policy_v2_p2", page_gold(p2[1]), p2[1][5][1])
     write_gold("note_vendor_meeting", "\n".join(NOTE_1) + "\n")
     write_gold("note_ops_review", "\n".join(NOTE_2) + "\n")

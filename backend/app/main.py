@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import documents, health, metrics, query, tools
+from app.api import auth, documents, health, metrics, query, tools
 from app.api.errors import install_error_handlers
 from app.api.request_id import HEADER, RequestIdMiddleware
 from app.config import Config, get_config
@@ -51,7 +51,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     # Added last so it runs outermost: CORS and error responses get the id too.
     app.add_middleware(RequestIdMiddleware)
 
-    for module in (health, query, documents, metrics, tools):
+    for module in (health, auth, query, documents, metrics, tools):
         app.include_router(module.router)
     return app
 

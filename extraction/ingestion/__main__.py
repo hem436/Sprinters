@@ -18,10 +18,14 @@ from pathlib import Path
 
 from ingestion.errors import IngestError
 
+_built = []
+
 
 def _knowledge():
     from ingestion.service import build
-    return build(inline=True)
+    k = build(inline=True)
+    _built.append(k)
+    return k
 
 
 def _ingest(args) -> int:
@@ -72,6 +76,14 @@ def main(argv: list[str] | None = None) -> int:
         r.add_argument("--admin", default="cli")
     args = p.parse_args(argv)
 
+    try:
+        return _run(args)
+    finally:
+        for k in _built:                       # close local Qdrant before Python shuts down
+            k.vector.client.close()
+
+
+def _run(args) -> int:
     try:
         if args.cmd == "ingest":
             return _ingest(args)

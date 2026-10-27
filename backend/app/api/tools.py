@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from app.api.auth import require_admin
 from app.api.errors import ApiError
 from app.config import Config, get_config
 from app.tools.registry import ToolRegistry
@@ -41,12 +42,12 @@ def _success_rates(config: Config) -> dict[str, float]:
         return {}
 
 
-@router.get("/tools")
+@router.get("/tools", dependencies=[Depends(require_admin)])
 def list_tools(registry: ToolRegistry = Depends(get_registry), config: Config = Depends(get_config)) -> list[dict]:
     return registry.info(_success_rates(config))
 
 
-@router.post("/tools/{name}/try")
+@router.post("/tools/{name}/try", dependencies=[Depends(require_admin)])
 def try_tool(name: str, body: TryRequest, registry: ToolRegistry = Depends(get_registry)) -> dict:
     result, fields = registry.run_checked(name, body.args)
     if result.status == "NO_TOOL":

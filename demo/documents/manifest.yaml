@@ -39,7 +39,7 @@
   category: Financial report
   version: FY2023-24
   effective_date: '2024-06-01'
-  doc_key: company-a-annual-report
+  doc_key: company-a-annual-report-fy2023-24
   company: Company A
   report_type: ANNUAL
   fiscal_year: FY2023-24
@@ -48,7 +48,7 @@
   category: Financial report
   version: FY2024-25
   effective_date: '2025-06-01'
-  doc_key: company-a-annual-report
+  doc_key: company-a-annual-report-fy2024-25
   company: Company A
   report_type: ANNUAL
   fiscal_year: FY2024-25

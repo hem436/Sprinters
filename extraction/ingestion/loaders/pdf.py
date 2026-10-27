@@ -18,7 +18,7 @@ from ingestion.classify import PageSignals, classify, page_signals
 from ingestion.clean import EDGE_LINES, is_edge_noise, printed_page_number, repeated_edge_lines
 from ingestion.config import ExtractConfig
 from ingestion.layout import SectionTracker, body_size, heading_level, lines_to_blocks, reading_order, text_to_blocks
-from ingestion.ocr import OcrEngine, OcrFailed, ocr_to_blocks, render_pdf_page
+from ingestion.ocr import OcrEngine, OcrFailed, render_pdf_page
 from ingestion.tables import find_unit, table_block
 from ingestion.types import Block, PageResult
 
@@ -54,13 +54,21 @@ def extract_pdf(path: Path | str, cfg: ExtractConfig, ocr: OcrEngine | None,
                 raw[index] = {"pypdf": True}
             pages.append(result)
 
-    # running headers and footers, from the text-layer pages
+    # OCR first (one page bitmap at a time), so running headers can be found on OCR pages too
+    ocr_pages = [p for p in pages if p.page_class in OCR_CLASSES]
+    for n, result in enumerate(ocr_pages, start=1):
+        if progress:
+            progress("ocr", n, len(ocr_pages))
+        _ocr_page(path, result, cfg, ocr)
+
+    # running headers and footers: text-layer lines and OCR lines are compared separately, because a scan has the
+    # header printed on it while the text layer of the same document may not
     repeated = repeated_edge_lines([[ln.text for ln in r["lines"]] for r in raw.values() if "lines" in r],
                                    cfg.repeat_line_ratio)
+    ocr_lines = {p.page: _markdown_lines(p.ocr_result.text_markdown) for p in ocr_pages if p.ocr_result}
+    ocr_repeated = repeated_edge_lines([[t for t, _ in lines] for lines in ocr_lines.values()], cfg.repeat_line_ratio)
 
     tracker = SectionTracker()
-    ocr_pages = [p for p in pages if p.page_class in OCR_CLASSES]
-    ocr_done = 0
     for result in pages:
         if result.page_class == "BLANK":
             result.method = "none"
@@ -73,18 +81,42 @@ def extract_pdf(path: Path | str, cfg: ExtractConfig, ocr: OcrEngine | None,
             blocks = _text_blocks(result, info, repeated, tracker)
             result.method = "text+tables" if any(b.type == "table" for b in blocks) else "text"
         if result.page_class in OCR_CLASSES:
-            ocr_done += 1
-            if progress:
-                progress("ocr", ocr_done, len(ocr_pages))
-            ocr_blocks = _ocr_page(path, result, cfg, ocr, tracker)
+            ocr_blocks = []
+            if result.ocr_result is not None:
+                markdown = _strip_ocr_edges(result, ocr_lines[result.page], ocr_repeated)
+                ocr_blocks = text_to_blocks(markdown, tracker, "ocr", markdown=True)
             if result.page_class == "MIXED":
                 blocks = blocks + ocr_blocks
                 result.method = "text+ocr"
             else:
-                blocks = ocr_blocks             # GARBLED: the text layer is unusable
+                blocks = ocr_blocks             # SCANNED, GARBLED: the text layer is unusable
                 result.method = "ocr"
         result.blocks = blocks
     return pages
+
+
+def _markdown_lines(markdown: str) -> list[tuple[str, str]]:
+    """(plain text, raw line) for each non-empty line; the plain text drops heading marks and bold marks."""
+    out = []
+    for raw in (markdown or "").splitlines():
+        plain = raw.strip().lstrip("#").strip().strip("*_ ").strip()
+        if plain:
+            out.append((plain, raw))
+    return out
+
+
+def _strip_ocr_edges(result: PageResult, lines: list[tuple[str, str]], repeated) -> str:
+    """X4 step 2 on an OCR page: drop the running header, footer and page number the scan shows.
+    Blank lines stay, so paragraphs stay apart; table rows are never dropped."""
+    drop = set()
+    for i, (plain, raw) in enumerate(lines):
+        if not raw.lstrip().startswith("|") and is_edge_noise(plain, i, len(lines), repeated):
+            number = printed_page_number(plain)
+            if number and not result.printed_page:
+                result.printed_page = number
+            result.removed_lines.append(plain)
+            drop.add(raw)
+    return "\n".join(r for r in result.ocr_result.text_markdown.splitlines() if r not in drop)
 
 
 def _text_layer(page, cfg: ExtractConfig) -> dict:
@@ -176,12 +208,12 @@ def _pypdf_page_text(path: str, page_no: int) -> str:
         return ""
 
 
-def _ocr_page(path: str, result: PageResult, cfg: ExtractConfig, ocr: OcrEngine | None,
-              tracker: SectionTracker) -> list[Block]:
+def _ocr_page(path: str, result: PageResult, cfg: ExtractConfig, ocr: OcrEngine | None) -> None:
+    """X5 for one page: sets result.ocr_result and usage, or flags OCR_FAILED. Blocks are made later, in page order."""
     if ocr is None:
         result.flags.append("OCR_FAILED")
         result.signals["ocr_error"] = "no OCR engine configured"
-        return []
+        return
     try:
         image = render_pdf_page(path, result.page, cfg.ocr_max_edge_px)
         try:
@@ -192,10 +224,9 @@ def _ocr_page(path: str, result: PageResult, cfg: ExtractConfig, ocr: OcrEngine 
         result.flags.append("OCR_FAILED")
         result.signals["ocr_error"] = str(e)[:200]
         result.ocr = e.usage
-        return []
+        return
     result.ocr = out.usage
     result.ocr_result = out
-    return ocr_to_blocks(out, tracker)
 
 
 def classify_only(path: Path | str, cfg: ExtractConfig) -> list[tuple[int, str, PageSignals]]:

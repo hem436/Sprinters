@@ -32,6 +32,10 @@ class Embedder(Protocol):
     def embed_query(self, text: str) -> list[float]: ...
 
 
+class EmbeddingCountError(RuntimeError):
+    """The model returned a different number of vectors than texts: never index such a batch."""
+
+
 class GeminiEmbedder:
     def __init__(self, cfg: ExtractConfig, sleep=time.sleep, cache_size: int = 256):
         self.cfg = cfg
@@ -68,12 +72,21 @@ class GeminiEmbedder:
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set; embeddings need it (or choose another embedder).")
         config = types.EmbedContentConfig(task_type=task, output_dimensionality=self.cfg.embed_dim)
+        # One Content per text. gemini-embedding-2-preview reads a plain list of strings as ONE multimodal input and
+        # returns a single vector for all of them (found on the demo corpus, 27 Oct 2026).
+        contents = [types.Content(parts=[types.Part(text=t)]) for t in texts]
         attempt = 0
         while True:
             try:
-                resp = self._client_for(key).models.embed_content(model=self.cfg.embed_model, contents=texts,
+                resp = self._client_for(key).models.embed_content(model=self.cfg.embed_model, contents=contents,
                                                                   config=config)
-                return [list(e.values) for e in resp.embeddings]
+                vectors = [list(e.values) for e in resp.embeddings]
+                if len(vectors) != len(texts):
+                    raise EmbeddingCountError(f"{self.cfg.embed_model} returned {len(vectors)} vectors for "
+                                              f"{len(texts)} texts")
+                return vectors
+            except EmbeddingCountError:
+                raise
             except Exception as e:
                 if keys.is_quota_error(e):
                     nxt = keys.rotate()

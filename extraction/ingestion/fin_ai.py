@@ -89,7 +89,8 @@ class GeminiLabelMapper(GeminiJSON):
     """A small text model is enough to propose names; a person approves every proposal."""
 
     def __init__(self, cfg: ExtractConfig, **kw):
-        super().__init__(cfg, model=cfg.fin_mapper_model, thinking_level=None, **kw)
+        super().__init__(cfg, model=cfg.fin_mapper_model, thinking_level=None,
+                         fallback_models=("gemini-3.5-flash-lite",), **kw)
 
     def propose(self, labels: list[str]) -> tuple[dict[str, str], OcrUsage | None]:
         if not labels:
