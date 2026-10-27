@@ -7,6 +7,7 @@ GET and POST /eval/runs. Shapes follow web/src/api/types.ts.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -156,6 +157,27 @@ def get_eval_run(run_id: str, config: Config = Depends(get_config)) -> dict:
         conn.close()
 
 
+class EvalRunRequest(BaseModel):
+    config_id: Literal["A", "B"] = "B"
+    case_ids: list[str] | None = None
+
+
 @router.post("/eval/runs", status_code=202, dependencies=[Depends(require_admin)])
-def start_eval_run() -> dict:
-    raise ApiError(501, "NOT_IMPLEMENTED", "The evaluation runner (Arka, WP-AG6) is not connected yet.")
+def start_eval_run(req: EvalRunRequest, config: Config = Depends(get_config)) -> dict:
+    """Arka's runner (model/agent/eval_store.py) on the agent that serves /query, in a background thread."""
+    from agent.eval_store import RunInProgress, start_run
+
+    from app.api.query import get_agent
+    from app.observability.recorder import QueryRecorder
+
+    repo = Path(__file__).resolve().parents[3]
+    cases = Path(os.getenv("EVAL_SET") or repo / "evals" / "eval_set.jsonl")
+    try:
+        run_id = start_run(get_agent(config), cases, req.config_id, _db(config),
+                           lambda q, s, c: QueryRecorder.start(q, s, c), out_dir=repo / "output",
+                           case_ids=req.case_ids)
+    except RunInProgress as exc:
+        raise ApiError(409, "RUN_IN_PROGRESS", str(exc)) from exc
+    except (ValueError, FileNotFoundError) as exc:
+        raise ApiError(422, "INVALID_CASES", str(exc)) from exc
+    return {"run_id": run_id}
