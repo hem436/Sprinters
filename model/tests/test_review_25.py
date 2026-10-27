@@ -169,3 +169,24 @@ def test_raw_output_reaches_the_recorder(corpus, table_reranker):
     Agent(StubSearch(corpus, bm25=[Hit("c_sop_laptop", 9.0, 1)]), StubTools(), llm, table_reranker({"POL": 0.9})).answer(
         "laptops?", "s1", recorder)
     assert all(c["raw_output"] for c in recorder.llm_calls)
+
+
+# --- first live run (Groq, 27 Oct) ------------------------------------------------------------------------------
+
+def test_live_claim_quoting_the_version_and_date_is_supported(corpus):
+    """The model wrote "₹2,000 (version 2.0, effective 2026-04-01)": the version and date come from the evidence tag."""
+    from agent.types import AnswerJSON, Claim
+    from agent.validate import check_grounding
+    evidence = {e.id: e for e in build_evidence([ScoredChunk(corpus["c_v2_perdiem"], 0.9)], [], [], 6000)}
+    claim = Claim(text="The per diem for Mumbai is ₹2,000 a day (version 2.0, effective 2026-04-01).", citations=["E1"])
+    score, checks = check_grounding(AnswerJSON(answer_markdown="", claims=[claim]), evidence)
+    assert score == 1.0, checks
+
+
+def test_live_llm_error_keeps_the_providers_reason(corpus, table_reranker):
+    llm = FakeLLM({"route": [DOCS], "answer": [LLMError("openai/gpt-oss-120b: HTTP 403 error code: 1010")]})
+    recorder = NullRecorder()
+    r = Agent(StubSearch(corpus, bm25=[Hit("c_sop_laptop", 9.0, 1)]), StubTools(), llm, table_reranker({"POL": 0.9})).answer(
+        "laptops?", "s1", recorder)
+    assert (r.outcome, r.reason_code) == ("FAILED", "LLM_ERROR")
+    assert "1010" in recorder.stage_details["generate"]["llm_error"] and recorder.finished["error_category"] == "LLM_ERROR"

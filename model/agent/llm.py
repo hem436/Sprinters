@@ -26,7 +26,9 @@ class OpenAICompatibleLLM:
     def __init__(self, base_url: str, api_key: str, model: str, fallback_model: str | None = None,
                  extra_headers: dict | None = None, timeout_s: float = 30.0, temperature: float = 0.1):
         self.url = base_url.rstrip("/") + "/chat/completions"
-        self.headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}", **(extra_headers or {})}
+        # an explicit User-Agent: Groq sits behind Cloudflare, which refuses Python's default "Python-urllib" (403, 1010)
+        self.headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}",
+                        "User-Agent": "eka-agent/1.0", **(extra_headers or {})}
         self.models = [m for m in (model, fallback_model) if m]
         self.timeout_s = timeout_s
         self.temperature = temperature

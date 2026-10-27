@@ -210,7 +210,7 @@ def _record(recorder: RecorderPort, state: dict, response: QueryResponse, cfg: A
         retrieval_relevant=has_relevant_evidence(retrieval.top_score, retrieval.score_kind, cfg) if retrieval else None,
         grounding_detail=[{**asdict(c), "text": mask_pii(c.text)[0]} for c in state.get("claim_checks", [])],
         safety_flags=state.get("safety_flags", []),
-        error_category=state.get("system_error"),
+        error_category=state.get("system_error") or ("LLM_ERROR" if facts.llm_failed else None),
         # one copy of the outcome rules (CHANGES DC-1): the store keeps exactly what the user saw
         outcome=response.outcome, reason_code=response.reason_code, confidence=response.confidence,
     )
