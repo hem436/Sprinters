@@ -189,6 +189,14 @@ Every finding of the 3 reviews has a test in `tests/test_review_fixes.py`. The o
   `unit` and `checks: [{name, passed, detail}]`; page flags are only HANDWRITTEN, HAS_TABLE, NUMBER_SUSPECT,
   INJECTION_SUSPECT, OCR_FAILED, BLANK, GARBLED; `Chunk.current` is filled for the agent.
 
+## Gemini rate limits (issue #51)
+
+The free tier allows 100 embedding requests a minute for each model, and every chunk is one request. Indexing paces
+itself to `embed.requests_per_minute` (90; set 0 on a paid tier) and waits out a per-minute 429 with the delay Google
+gives. A 160-chunk document indexed in about 2 minutes on 27 Oct 2026, where it used to fail. A daily quota is
+different: waiting does not help, so the code moves to `GEMINI_FALLBACK_KEY` and then fails with the quota named in
+the document's error. Retry a failed document with `POST /documents/{id}/reindex`.
+
 ## Not done yet
 
 - Real photos of 2 handwritten notes and their typed gold text; optionally a page of a real public annual report.
