@@ -31,6 +31,9 @@ _KEYS = {
     "ocr.fallback_models": "ocr_fallback_models",
     "ocr.timeout_s": "ocr_timeout_s",
     "embed.timeout_s": "embed_timeout_s",
+    "embed.requests_per_minute": "embed_requests_per_minute",
+    "embed.max_wait_s": "embed_max_wait_s",
+    "ocr.max_wait_s": "ocr_max_wait_s",
     "ocr.attempts": "ocr_attempts",
     "ocr.price_files": "price_files",
     "fin.review_unmapped": "fin_review_unmapped",
@@ -79,6 +82,7 @@ class ExtractConfig:
     # the free tier allows only 20 requests a day per model on gemini-3.5-flash; these take over when it runs out
     ocr_fallback_models: tuple[str, ...] = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
     ocr_timeout_s: int = 60                  # per call; a timeout is retried like a 503
+    ocr_max_wait_s: int = 300                # waiting out per-minute 429s, in total for one page
     ocr_max_edge_px: int = 1600
     ocr_prompt_version: str = "ocr-v1"
     ocr_attempts: int = 3
@@ -103,6 +107,11 @@ class ExtractConfig:
     embed_fallback_model: str = "all-mpnet-base-v2"
     embed_batch_size: int = 32
     embed_timeout_s: int = 30
+    # Gemini free tier: 100 embed requests a minute per model, and every text is one request (issue #51). We stay
+    # under it on our side; 0 turns the pacing off (paid tier). A per-minute 429 that still comes is waited out, up
+    # to embed.max_wait_s in total for one call, then the document fails with the quota named in its error.
+    embed_requests_per_minute: int = 90
+    embed_max_wait_s: int = 900
     embed_dim: int | None = None          # None = the model's own size; a change of model or size needs a re-index
     collection: str = "enterprise_kb"
 

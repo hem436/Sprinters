@@ -159,6 +159,7 @@ class GeminiJSON:
         )
         last_error: Exception | None = None
         attempt = 0
+        waited = 0.0
         while attempt < self.cfg.ocr_attempts:
             usage.attempts += 1
             started = time.monotonic()
@@ -178,6 +179,14 @@ class GeminiJSON:
                     if nxt:
                         key = nxt
                         continue                   # a new key does not use up an attempt
+                    if keys.is_per_minute(e):
+                        # issue #51: a per-minute limit is waited out, not counted as a failed attempt
+                        delay = max(keys.quota_info(e).get("retry_delay_s", 15.0), 5.0) + 1.0
+                        if waited + delay <= self.cfg.ocr_max_wait_s:
+                            log.warning("%s: %s; waiting %.0f s", model, keys.describe_quota(e), delay)
+                            self._sleep(delay)
+                            waited += delay
+                            continue
                     if keys.is_daily_cap(e) and self._model_index + 1 < len(self.models):
                         self._model_index += 1
                         model = self.models[self._model_index]
@@ -195,7 +204,9 @@ class GeminiJSON:
                 break
         usage.model = model
         usage.cost_usd = ocr_cost(self.cfg, usage.input_tokens, usage.output_tokens, model)
-        raise GeminiFailed(f"failed after {usage.attempts} attempt(s): {str(last_error)[:200]}", usage)
+        reason = keys.describe_quota(last_error) if last_error and keys.is_quota_error(last_error) \
+            else str(last_error)[:200]
+        raise GeminiFailed(f"failed after {usage.attempts} attempt(s): {reason}", usage)
 
 
 class GeminiOCR(GeminiJSON):

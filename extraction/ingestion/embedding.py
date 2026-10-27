@@ -11,6 +11,7 @@ import hashlib
 import logging
 import math
 import re
+import threading
 import time
 from collections import OrderedDict
 from typing import Protocol
@@ -36,6 +37,56 @@ class EmbeddingCountError(RuntimeError):
     """The model returned a different number of vectors than texts: never index such a batch."""
 
 
+class EmbeddingRateLimited(RuntimeError):
+    """A quota the code cannot wait out: a daily cap on every key, or more waiting than embed.max_wait_s."""
+
+
+class RateLimiter:
+    """At most `per_minute` requests in any 60 s, shared by every embedder of the process for one model (the
+    ingest worker and the search path count against the same Google quota). `acquire(n)` waits until n fit."""
+
+    def __init__(self, per_minute: int, clock=time.monotonic, sleep=time.sleep):
+        self.per_minute = per_minute
+        self._clock, self._sleep = clock, sleep
+        self._sent: list[tuple[float, int]] = []          # (time, requests)
+        self._lock = threading.Lock()
+
+    def acquire(self, n: int) -> float:
+        """Returns the seconds waited."""
+        if self.per_minute <= 0:
+            return 0.0
+        n = min(n, self.per_minute)
+        waited = 0.0
+        while True:
+            with self._lock:
+                now = self._clock()
+                self._sent = [(t, k) for t, k in self._sent if now - t < 60]
+                used = sum(k for _, k in self._sent)
+                if used + n <= self.per_minute:
+                    self._sent.append((now, n))
+                    return waited
+                # wait until enough of the oldest requests leave the 60 s window
+                free, wait = used + n - self.per_minute, 0.0
+                for t, k in self._sent:
+                    free -= k
+                    if free <= 0:
+                        wait = 60 - (now - t) + 0.05
+                        break
+            self._sleep(wait)
+            waited += wait
+
+
+_limiters: dict[str, RateLimiter] = {}
+_limiters_lock = threading.Lock()
+
+
+def limiter_for(model: str, per_minute: int) -> RateLimiter:
+    with _limiters_lock:
+        if model not in _limiters or _limiters[model].per_minute != per_minute:
+            _limiters[model] = RateLimiter(per_minute)
+        return _limiters[model]
+
+
 class GeminiEmbedder:
     def __init__(self, cfg: ExtractConfig, sleep=time.sleep, cache_size: int = 256):
         self.cfg = cfg
@@ -43,6 +94,7 @@ class GeminiEmbedder:
         self._client = None
         self._key = None
         self._dim = cfg.embed_dim
+        self.limiter = limiter_for(cfg.embed_model, cfg.embed_requests_per_minute)
         self._cache: OrderedDict[str, list[float]] = OrderedDict()
         self._cache_size = cache_size
 
@@ -76,7 +128,9 @@ class GeminiEmbedder:
         # returns a single vector for all of them (found on the demo corpus, 27 Oct 2026).
         contents = [types.Content(parts=[types.Part(text=t)]) for t in texts]
         attempt = 0
+        waited = 0.0
         while True:
+            self.limiter.acquire(len(texts))                # each text is one request on Google's side
             try:
                 resp = self._client_for(key).models.embed_content(model=self.cfg.embed_model, contents=contents,
                                                                   config=config)
@@ -93,16 +147,35 @@ class GeminiEmbedder:
                     if nxt:
                         key = nxt
                         continue
+                    if keys.is_per_minute(e):
+                        # issue #51: wait the delay Google asks for (15 s if it gives none) and keep going
+                        delay = max(keys.quota_info(e).get("retry_delay_s", 15.0), 5.0) + 1.0
+                        if waited + delay > self.cfg.embed_max_wait_s:
+                            raise EmbeddingRateLimited(f"{keys.describe_quota(e)}; waited {waited:.0f} s, the "
+                                                       f"limit embed.max_wait_s is {self.cfg.embed_max_wait_s} s") from e
+                        log.warning("embedding: %s; waiting %.0f s", keys.describe_quota(e), delay)
+                        self._sleep(delay)
+                        waited += delay
+                        continue
+                    if keys.is_daily_cap(e):
+                        raise EmbeddingRateLimited(f"{keys.describe_quota(e)}: the daily quota is used up on every "
+                                                   "key; add GEMINI_FALLBACK_KEY from another project") from e
                 attempt += 1
                 if attempt < 4 and (keys.is_quota_error(e) or keys.is_transient(e)):
                     self._sleep(2 ** (attempt - 1))
                     continue
+                if keys.is_quota_error(e):
+                    raise EmbeddingRateLimited(keys.describe_quota(e)) from e
                 raise
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        # a batch never asks for more than the per-minute pace allows in one go
+        size = self.cfg.embed_batch_size
+        if self.cfg.embed_requests_per_minute > 0:
+            size = min(size, self.cfg.embed_requests_per_minute)
         out: list[list[float]] = []
-        for i in range(0, len(texts), self.cfg.embed_batch_size):
-            out.extend(self._embed(texts[i:i + self.cfg.embed_batch_size], "RETRIEVAL_DOCUMENT"))
+        for i in range(0, len(texts), size):
+            out.extend(self._embed(texts[i:i + size], "RETRIEVAL_DOCUMENT"))
         return out
 
     def embed_query(self, text: str) -> list[float]:
