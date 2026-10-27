@@ -12,7 +12,6 @@ import { DashboardPage } from './pages/dashboard/DashboardPage'
 import { EvalPage } from './pages/eval/EvalPage'
 import { QueryDetailPage } from './pages/queries/QueryDetailPage'
 import { UserDocumentsPage } from './pages/library/UserDocumentsPage'
-import { QueryListPage } from './pages/queries/QueryListPage'
 
 const guarded = (el: JSX.Element) => <RequireAuth>{el}</RequireAuth>
 
@@ -25,7 +24,7 @@ export function App() {
         <Route path="documents" element={<UserDocumentsPage />} />
         <Route path="login" element={<LoginPage />} />
         <Route path="dashboard" element={guarded(<DashboardPage />)} />
-        <Route path="queries" element={guarded(<QueryListPage />)} />
+        <Route path="queries" element={<Navigate to="/dashboard" replace />} />
         <Route path="queries/:queryId" element={guarded(<QueryDetailPage />)} />
         <Route path="eval" element={guarded(<EvalPage />)} />
         <Route path="admin/documents" element={guarded(<DocumentsPage />)} />
