@@ -18,7 +18,7 @@ from agent.ports import LLMPort, RecorderPort, RerankerPort, SearchPort, ToolPor
 from agent.recording import report_llm, report_tool, run_stage
 from agent.retrieval import Conflict, RetrievalResult, find_conflicts, retrieve
 from agent.router import ROUTE_PROMPT_VERSION, route_question
-from agent.safety import check_output, guard_question
+from agent.safety import check_output, guard_question, mask_pii
 from agent.types import AnswerJSON, Evidence, LLMReply, RouteDecision, ToolResult, Turn
 from agent.validate import check_citations, check_grounding
 
@@ -68,12 +68,15 @@ def build_graph(search: SearchPort, tools: ToolPort, llm: LLMPort, reranker: Rer
 
     def plan(state: AgentState) -> dict:
         context = select_context(state.get("history", []), state["cfg"])
+        # 04 S3 and 06: no personal data reaches a hosted model, so the planner (and every later prompt, which uses its
+        # standalone query) sees the masked question; the rules run on the same masked text
+        question = mask_pii(state["question"])[0]
         with run_stage(state["recorder"], "plan", "context", "route") as stage:
             try:
-                decision, replies = route_question(state["question"], context, llm, tools)
+                decision, replies = route_question(question, context, llm, tools)
             except LLMError as error:
-                # 06 AI-4: the planner failed, so answer from the documents with the user's own words
-                decision, replies = RouteDecision("DOCS", state["question"], reason="ROUTE_FALLBACK"), []
+                # 06 AI-4: the planner failed, so answer from the documents with the user's own (masked) words
+                decision, replies = RouteDecision("DOCS", question, reason="ROUTE_FALLBACK"), []
                 _detail(stage, llm_error=str(error)[:300])
             _detail(stage, route=decision.route, route_reason=decision.reason, tool=decision.tool)
         for reply in replies:

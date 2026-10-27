@@ -47,6 +47,17 @@ def test_a_malformed_wait_or_a_dropped_body_moves_on():
     assert llm.complete("s", "u", purpose="answer").model == "third" and calls == ["big", "small", "third"]
 
 
+def test_no_personal_data_reaches_the_hosted_planner(corpus, table_reranker):
+    """04 S3, 06: the phone number in the question is masked before the planner's prompt is built."""
+    from agent.service import Agent
+    from agent.stubs import FakeLLM, NullRecorder, StubSearch, StubTools
+    llm = FakeLLM({"route": [{"route": "DOCS", "standalone_query": "q", "tool": None}]})
+    Agent(StubSearch(corpus), StubTools(), llm, table_reranker({})).answer(
+        "My phone is 98765 43210. What is the per diem in Mumbai?", "s1", NullRecorder())
+    planner_prompt = llm.calls[0][2]
+    assert "98765" not in planner_prompt and "[PHONE]" in planner_prompt
+
+
 def test_the_planner_starts_on_its_own_model():
     llm, calls = _client(["ok", "ok"], route_model="small", more_models=("third",))
     llm.complete("s", "u", purpose="route")
